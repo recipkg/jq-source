@@ -749,43 +749,16 @@ _MISSING = object()
 
 
 def parse_json_values(chunks, sequence=False):
-    decoder = json.JSONDecoder()
-    chunks = iter(chunks)
-    pending = ''
-    exhausted = False
+    reader = StreamReader(chunks)
+    parser = ValueParser(reader)
     while True:
-        pending = pending.lstrip()
-        if not pending and exhausted:
+        reader.whitespace()
+        if not reader.peek():
             return
-        if not pending:
-            try:
-                pending += next(chunks)
-            except StopIteration:
-                exhausted = True
-            continue
-        try:
-            item, end = decoder.raw_decode(pending)
-        except ValueError as exc:
-            if exhausted:
-                raise RuntimeErrorJq('invalid JSON input: ' + str(exc)) from exc
-            try:
-                pending += next(chunks)
-            except StopIteration:
-                exhausted = True
-            continue
-        scalar = item is None or type(item) in (bool, int, float)
-        if scalar and end == len(pending) and not exhausted:
-            try:
-                pending += next(chunks)
-            except StopIteration:
-                exhausted = True
-            continue
-        if scalar and end < len(pending) and not (pending[end].isspace() or pending[end] in '[{"'):
-            raise RuntimeErrorJq('invalid JSON literal')
-        if sequence and type(item) in (int, float) and end == len(pending) and exhausted:
+        item = parser.value()
+        if sequence and type(item) in (int, float) and not reader.peek():
             raise RuntimeErrorJq('potentially truncated top-level numeric value')
         yield item
-        pending = pending[end:]
 
 
 class StreamParseError(RuntimeErrorJq):
@@ -822,6 +795,118 @@ class StreamReader:
             self.take()
 
 
+NUMBER_LITERAL = re.compile(r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?\Z')
+
+
+def decode_atom(token):
+    constants = {'null': None, 'true': True, 'false': False}
+    if token in constants:
+        return constants[token]
+    if token.lower() in ('nan', '+nan', '-nan'):
+        return None
+    if token.lower() in ('inf', '+inf', 'infinity', '+infinity'):
+        return sys.float_info.max
+    if token.lower() in ('-inf', '-infinity'):
+        return -sys.float_info.max
+    if not NUMBER_LITERAL.fullmatch(token):
+        raise RuntimeErrorJq('invalid JSON literal')
+    if '.' not in token and 'e' not in token.lower():
+        return int(token)
+    if token.endswith('.'):
+        return int(token[:-1])
+    number = float(token)
+    if number == float('inf') or number == float('-inf'):
+        raise RuntimeErrorJq('numeric literal exceeds supported range')
+    return number
+
+
+def decode_string(text):
+    try:
+        value = json.loads(text)
+    except ValueError as exc:
+        raise RuntimeErrorJq('invalid JSON string: ' + str(exc)) from exc
+    result = []
+    for char in value:
+        code = ord(char)
+        if 0xD800 <= code <= 0xDBFF:
+            raise RuntimeErrorJq('invalid high surrogate')
+        result.append('\ufffd' if 0xDC00 <= code <= 0xDFFF else char)
+    return ''.join(result)
+
+
+class ValueParser:
+    """Parse consecutive JSON values without requiring the standard JSON grammar."""
+
+    def __init__(self, reader):
+        self.reader = reader
+
+    def string(self):
+        text = self.reader.take()
+        escaped = False
+        while True:
+            char = self.reader.take()
+            if not char:
+                raise RuntimeErrorJq('unfinished JSON string')
+            text += char
+            if not escaped and char == '"':
+                break
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+        return decode_string(text)
+
+    def value(self):
+        reader = self.reader
+        reader.whitespace()
+        char = reader.peek()
+        if not char:
+            raise RuntimeErrorJq('unfinished JSON value')
+        if char == '"':
+            return self.string()
+        if char == '[':
+            reader.take()
+            reader.whitespace()
+            result = []
+            if reader.peek() == ']':
+                reader.take()
+                return result
+            while True:
+                result.append(self.value())
+                reader.whitespace()
+                separator = reader.take()
+                if separator == ']':
+                    return result
+                if separator != ',':
+                    raise RuntimeErrorJq('expected array separator or end')
+        if char == '{':
+            reader.take()
+            reader.whitespace()
+            result = {}
+            if reader.peek() == '}':
+                reader.take()
+                return result
+            while True:
+                reader.whitespace()
+                if reader.peek() != '"':
+                    raise RuntimeErrorJq('expected object key')
+                key = self.string()
+                reader.whitespace()
+                if reader.take() != ':':
+                    raise RuntimeErrorJq('expected colon after object key')
+                result[key] = self.value()
+                reader.whitespace()
+                separator = reader.take()
+                if separator == '}':
+                    return result
+                if separator != ',':
+                    raise RuntimeErrorJq('expected object separator or end')
+        token = ''
+        while reader.peek() and reader.peek() not in ' \t\r\n,]}:{["':
+            token += reader.take()
+        return decode_atom(token)
+
+
 class StreamParser:
     def __init__(self, chunks):
         self.reader = StreamReader(chunks)
@@ -844,9 +929,9 @@ class StreamParser:
             elif char == '\\':
                 escaped = True
         try:
-            return json.loads(text)
-        except ValueError as exc:
-            self.fail('invalid JSON string: ' + str(exc), path)
+            return decode_string(text)
+        except RuntimeErrorJq as exc:
+            self.fail(str(exc), path)
 
     def value(self, path):
         reader = self.reader
@@ -907,14 +992,12 @@ class StreamParser:
         if char == '"':
             return [path, self.string(path)]
         token = ''
-        while reader.peek() and reader.peek() not in ' \t\r\n,]}:{[':
+        while reader.peek() and reader.peek() not in ' \t\r\n,]}:{["':
             token += reader.take()
         try:
-            item = json.loads(token)
-        except ValueError:
-            self.fail('invalid JSON literal', path)
-        if not (item is None or type(item) in (bool, int, float)):
-            self.fail('invalid JSON literal', path)
+            item = decode_atom(token)
+        except RuntimeErrorJq as exc:
+            self.fail(str(exc), path)
         return [path, item]
 
     def records(self):
