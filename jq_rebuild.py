@@ -18,9 +18,9 @@ class RuntimeErrorJq(Exception):
 
 
 TOKEN = re.compile(
-    r'\s*(?:(?P<string>"(?:\\.|[^"\\])*")|(?P<number>-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)'
+    r'\s*(?:(?P<string>"(?:\\.|[^"\\])*")|(?P<number>(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)'
     r'|(?P<variable>\$[A-Za-z_][A-Za-z_0-9]*)|(?P<word>[A-Za-z_][A-Za-z_0-9]*)'
-    r'|(?P<op>==|!=|>=|<=|//|\|=|[.\[\]{}:,()|+<>=?]))'
+    r'|(?P<op>==|!=|>=|<=|//|\|=|[.\[\]{}:,;()|+*<>=?-]))'
 )
 
 
@@ -62,10 +62,43 @@ class Parser:
 
     def pipe(self):
         node = self.comma()
-        while self.peek('|'):
+        if self.peek('as'):
+            self.take('as')
+            pattern = self.pattern()
             self.take('|')
-            node = ('pipe', node, self.comma())
+            return ('bind', node, pattern, self.pipe())
+        if self.peek('|'):
+            self.take('|')
+            node = ('pipe', node, self.pipe())
         return node
+
+    def pattern(self):
+        if self.peek() and self.peek()[0] == 'variable':
+            return ('var', self.take()[1][1:])
+        if self.peek('['):
+            self.take('[')
+            items = []
+            while not self.peek(']'):
+                items.append(self.pattern())
+                if not self.peek(','):
+                    break
+                self.take(',')
+            self.take(']')
+            return ('array', items)
+        if self.peek('{'):
+            self.take('{')
+            fields = []
+            while not self.peek('}'):
+                token = self.take()
+                if token[0] != 'variable':
+                    raise CompileError('unsupported object binding pattern')
+                fields.append((token[1][1:], ('var', token[1][1:])))
+                if not self.peek(','):
+                    break
+                self.take(',')
+            self.take('}')
+            return ('object', fields)
+        raise CompileError('expected binding pattern')
 
     def comma(self):
         node = self.assignment()
@@ -110,16 +143,25 @@ class Parser:
         return node
 
     def addition(self):
+        node = self.multiplication()
+        while self.peek('+') or self.peek('-'):
+            operator = self.take()[1]
+            node = ('binary', operator, node, self.multiplication())
+        return node
+
+    def multiplication(self):
         node = self.atom()
-        while self.peek('+'):
-            self.take('+')
-            node = ('binary', '+', node, self.atom())
+        while self.peek('*'):
+            self.take('*')
+            node = ('binary', '*', node, self.atom())
         return node
 
     def atom(self):
         token = self.take()
         kind, value = token
-        if value == '.':
+        if value == '-':
+            node = ('negate', self.atom())
+        elif value == '.':
             node = ('identity',)
             if (self.peek() and self.peek()[0] == 'word' and
                     self.positions[self.pos][0] == self.positions[self.pos - 1][1]):
@@ -162,6 +204,22 @@ class Parser:
             elif value == 'if':
                 node = self.conditional()
                 self.take('end')
+            elif value in ('reduce', 'foreach'):
+                generator = self.comma()
+                self.take('as')
+                pattern = self.pattern()
+                self.take('(')
+                initial = self.pipe()
+                self.take(';')
+                update = self.pipe()
+                extract = None
+                if self.peek(';'):
+                    self.take(';')
+                    extract = self.pipe()
+                self.take(')')
+                if value == 'reduce' and extract is not None:
+                    raise CompileError('reduce does not accept an extract expression')
+                node = (value, generator, pattern, initial, update, extract)
             elif value == 'try':
                 body = self.assignment()
                 if self.peek('catch'):
@@ -333,12 +391,77 @@ def write_path(root, path, value, delete=False):
     return root
 
 
+def bind_pattern(pattern, value):
+    kind, content = pattern
+    if kind == 'var':
+        return {content: value}
+    result = {}
+    if kind == 'array':
+        if value is not None and not isinstance(value, list):
+            raise RuntimeErrorJq('cannot destructure this value as an array')
+        for index, child in enumerate(content):
+            item = value[index] if value is not None and index < len(value) else None
+            result.update(bind_pattern(child, item))
+    else:
+        if value is not None and not isinstance(value, dict):
+            raise RuntimeErrorJq('cannot destructure this value as an object')
+        for key, child in content:
+            result.update(bind_pattern(child, value.get(key) if value is not None else None))
+    return result
+
+
+def pattern_names(pattern):
+    kind, content = pattern
+    if kind == 'var':
+        return {content}
+    children = content if kind == 'array' else [child for _, child in content]
+    return set().union(*(pattern_names(child) for child in children))
+
+
+def validate_variables(node, names):
+    kind = node[0]
+    if kind == 'variable':
+        if node[1] not in names:
+            raise CompileError('$' + node[1] + ' is not defined')
+    elif kind == 'bind':
+        validate_variables(node[1], names)
+        validate_variables(node[3], names | pattern_names(node[2]))
+    elif kind in ('reduce', 'foreach'):
+        validate_variables(node[1], names)
+        validate_variables(node[3], names)
+        scope = names | pattern_names(node[2])
+        validate_variables(node[4], scope)
+        if node[5] is not None:
+            validate_variables(node[5], scope)
+    elif kind in ('array', 'negate', 'field', 'iterate'):
+        validate_variables(node[1], names)
+    elif kind in ('pipe', 'comma', 'index', 'try'):
+        validate_variables(node[1], names)
+        validate_variables(node[2], names)
+    elif kind in ('binary', 'assignment'):
+        validate_variables(node[2], names)
+        validate_variables(node[3], names)
+    elif kind == 'if':
+        for child in node[1:]:
+            validate_variables(child, names)
+    elif kind == 'object':
+        for _, child in node[1]:
+            validate_variables(child, names)
+    elif kind == 'call' and node[2] is not None:
+        validate_variables(node[2], names)
+
+
 def values(node, value, variables):
     kind = node[0]
     if kind == 'identity':
         yield value
     elif kind == 'literal':
         yield node[1]
+    elif kind == 'negate':
+        for item in values(node[1], value, variables):
+            if type(item) not in (int, float):
+                raise RuntimeErrorJq('cannot negate this value')
+            yield -item
     elif kind == 'variable':
         if node[1] not in variables:
             raise CompileError('$' + node[1] + ' is not defined')
@@ -373,6 +496,24 @@ def values(node, value, variables):
     elif kind == 'pipe':
         for item in values(node[1], value, variables):
             yield from values(node[2], item, variables)
+    elif kind == 'bind':
+        for item in values(node[1], value, variables):
+            scope = {**variables, **bind_pattern(node[2], item)}
+            yield from values(node[3], value, scope)
+    elif kind in ('reduce', 'foreach'):
+        generator, pattern, initial, update, extract = node[1:]
+        for index, state in enumerate(values(initial, value, variables)):
+            source = value if kind == 'foreach' or index == 0 else None
+            for item in values(generator, source, variables):
+                scope = {**variables, **bind_pattern(pattern, item)}
+                state_before = state
+                state = None
+                for result in values(update, state_before, scope):
+                    state = result
+                    if kind == 'foreach':
+                        yield from values(extract or ('identity',), state, scope)
+            if kind == 'reduce':
+                yield state
     elif kind == 'comma':
         yield from values(node[1], value, variables)
         yield from values(node[2], value, variables)
@@ -444,6 +585,10 @@ def values(node, value, variables):
                         yield left_value + right_value
                     else:
                         raise RuntimeErrorJq('incompatible operands for addition')
+                elif op in ('-', '*'):
+                    if type(left_value) not in (int, float) or type(right_value) not in (int, float):
+                        raise RuntimeErrorJq('incompatible numeric operands')
+                    yield left_value - right_value if op == '-' else left_value * right_value
                 elif op in ('==', '!='):
                     equal = compare_values(left_value, right_value) == 0
                     yield equal if op == '==' else not equal
@@ -607,6 +752,7 @@ def main():
         if not argv:
             raise CompileError('expected one filter')
         program = Parser(argv.pop(0)).parse()
+        validate_variables(program, set(variables))
         input_stream = InputStream(argv, 'R' in flags, 's' in flags)
         cursor = iter(input_stream)
         variables['@inputs'] = cursor
