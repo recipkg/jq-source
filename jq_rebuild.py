@@ -2,6 +2,7 @@
 
 This is deliberately incomplete. Reject unsupported operations explicitly.
 """
+import codecs
 import copy
 import functools
 import json
@@ -785,23 +786,182 @@ def parse_json_values(chunks):
         pending = pending[end:]
 
 
+class StreamParseError(RuntimeErrorJq):
+    def __init__(self, message, path):
+        super().__init__(message)
+        self.path = path
+
+
+class StreamReader:
+    """Read characters across input chunks without materializing the JSON tree."""
+
+    def __init__(self, chunks):
+        self.chunks = iter(chunks)
+        self.buffer = ''
+        self.offset = 0
+
+    def peek(self):
+        while self.offset == len(self.buffer):
+            try:
+                self.buffer = next(self.chunks)
+            except StopIteration:
+                return ''
+            self.offset = 0
+        return self.buffer[self.offset]
+
+    def take(self):
+        char = self.peek()
+        if char:
+            self.offset += 1
+        return char
+
+    def whitespace(self):
+        while self.peek() and self.peek() in ' \t\r\n':
+            self.take()
+
+
+class StreamParser:
+    def __init__(self, chunks):
+        self.reader = StreamReader(chunks)
+
+    def fail(self, message, path):
+        raise StreamParseError(message, path)
+
+    def string(self, path):
+        text = self.reader.take()
+        escaped = False
+        while True:
+            char = self.reader.take()
+            if not char:
+                self.fail('unfinished JSON string', path)
+            text += char
+            if not escaped and char == '"':
+                break
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+        try:
+            return json.loads(text)
+        except ValueError as exc:
+            self.fail('invalid JSON string: ' + str(exc), path)
+
+    def value(self, path):
+        reader = self.reader
+        reader.whitespace()
+        char = reader.peek()
+        if not char:
+            self.fail('unfinished JSON term at EOF', path)
+        if char == '[':
+            reader.take()
+            reader.whitespace()
+            if reader.peek() == ']':
+                reader.take()
+                yield [path, []]
+                return None
+            index = 0
+            while True:
+                child_path = path + [index]
+                if reader.peek() == ']':
+                    self.fail('expected another array element', child_path)
+                leaf = yield from self.value(child_path)
+                reader.whitespace()
+                separator = reader.take()
+                if separator not in (',', ']'):
+                    self.fail('expected array separator or end', child_path)
+                if leaf is not None:
+                    yield leaf
+                if separator == ']':
+                    yield [child_path]
+                    return None
+                index += 1
+                reader.whitespace()
+        if char == '{':
+            reader.take()
+            reader.whitespace()
+            if reader.peek() == '}':
+                reader.take()
+                yield [path, {}]
+                return None
+            while True:
+                if reader.peek() != '"':
+                    self.fail('expected object key', path + [None])
+                key = self.string(path + [None])
+                reader.whitespace()
+                if reader.take() != ':':
+                    self.fail('expected colon after object key', path + [None])
+                child_path = path + [key]
+                leaf = yield from self.value(child_path)
+                reader.whitespace()
+                separator = reader.take()
+                if separator not in (',', '}'):
+                    self.fail('expected object separator or end', child_path)
+                if leaf is not None:
+                    yield leaf
+                if separator == '}':
+                    yield [child_path]
+                    return None
+                reader.whitespace()
+        if char == '"':
+            return [path, self.string(path)]
+        token = ''
+        while reader.peek() and reader.peek() not in ' \t\r\n,]}:{[':
+            token += reader.take()
+        try:
+            item = json.loads(token)
+        except ValueError:
+            self.fail('invalid JSON literal', path)
+        if not (item is None or type(item) in (bool, int, float)):
+            self.fail('invalid JSON literal', path)
+        return [path, item]
+
+    def records(self):
+        while True:
+            self.reader.whitespace()
+            if not self.reader.peek():
+                return
+            leaf = yield from self.value([])
+            if leaf is not None:
+                yield leaf
+
+
+def parse_json_stream(chunks, errors):
+    try:
+        yield from StreamParser(chunks).records()
+    except StreamParseError as exc:
+        if not errors:
+            raise
+        yield [str(exc), exc.path]
+
+
 class InputStream:
     """One shared input cursor for automatic iteration and input/inputs."""
 
-    def __init__(self, paths, raw_mode, slurp):
+    def __init__(self, paths, raw_mode, slurp, stream=False, stream_errors=False):
         self.paths = paths or ['-']
         self.raw_mode = raw_mode
         self.slurp = slurp
+        self.stream = stream
+        self.stream_errors = stream_errors
         self.file_error = False
 
     def chunks(self):
         for path in self.paths:
             if path == '-':
-                yield sys.stdin.read()
+                decoder = codecs.getincrementaldecoder('utf-8')('replace')
+                while True:
+                    data = sys.stdin.buffer.read1(65536)
+                    if not data:
+                        break
+                    yield decoder.decode(data)
+                tail = decoder.decode(b'', final=True)
+                if tail:
+                    yield tail
             else:
                 try:
                     with open(path, encoding='utf-8', errors='replace', newline='') as source:
-                        yield source.read()
+                        while chunk := source.read(65536):
+                            yield chunk
                 except OSError as exc:
                     self.file_error = True
                     print(f'jq: could not open file {path}: {exc.strerror}', file=sys.stderr)
@@ -818,10 +978,13 @@ class InputStream:
                 yield from lines
             if pending:
                 yield pending
-        elif self.slurp:
-            yield list(parse_json_values(self.chunks()))
         else:
-            yield from parse_json_values(self.chunks())
+            records = (parse_json_stream(self.chunks(), self.stream_errors) if self.stream
+                       else parse_json_values(self.chunks()))
+            if self.slurp:
+                yield list(records)
+            else:
+                yield from records
 
 
 def main():
@@ -841,6 +1004,10 @@ def main():
                 variables[name] = json.loads(raw) if option == '--argjson' else raw
             elif option == '--raw-output0':
                 flags.add('raw-output0')
+            elif option in ('--stream', '--stream-errors'):
+                flags.add('stream')
+                if option == '--stream-errors':
+                    flags.add('stream-errors')
             elif option.startswith('--') or any(c not in 'nscerR' for c in option[1:]):
                 raise CompileError('unsupported option ' + option)
             else:
@@ -849,7 +1016,8 @@ def main():
             raise CompileError('expected one filter')
         program = Parser(argv.pop(0)).parse()
         validate_variables(program, set(variables))
-        input_stream = InputStream(argv, 'R' in flags, 's' in flags)
+        input_stream = InputStream(argv, 'R' in flags, 's' in flags,
+                                   'stream' in flags, 'stream-errors' in flags)
         cursor = iter(input_stream)
         variables['@inputs'] = cursor
         source = [None] if 'n' in flags else cursor
