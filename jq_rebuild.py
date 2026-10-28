@@ -748,7 +748,7 @@ def values(node, value, variables):
 _MISSING = object()
 
 
-def parse_json_values(chunks):
+def parse_json_values(chunks, sequence=False):
     decoder = json.JSONDecoder()
     chunks = iter(chunks)
     pending = ''
@@ -782,6 +782,8 @@ def parse_json_values(chunks):
             continue
         if scalar and end < len(pending) and not (pending[end].isspace() or pending[end] in '[{"'):
             raise RuntimeErrorJq('invalid JSON literal')
+        if sequence and type(item) in (int, float) and end == len(pending) and exhausted:
+            raise RuntimeErrorJq('potentially truncated top-level numeric value')
         yield item
         pending = pending[end:]
 
@@ -934,15 +936,53 @@ def parse_json_stream(chunks, errors):
         yield [str(exc), exc.path]
 
 
+def sequence_segments(chunks):
+    """Drop text before the first record separator and split at later separators."""
+    pending = ''
+    seen_separator = False
+    for chunk in chunks:
+        parts = chunk.split('\x1e')
+        if seen_separator:
+            pending += parts[0]
+        if len(parts) > 1:
+            if seen_separator:
+                yield pending
+            seen_separator = True
+            for part in parts[1:-1]:
+                yield part
+            pending = parts[-1]
+    yield pending if seen_separator else None
+
+
+def parse_json_sequence(chunks, stream, stream_errors):
+    for segment in sequence_segments(chunks):
+        if segment is None:
+            if stream_errors:
+                yield ['unfinished abandoned text at EOF', []]
+            else:
+                print('jq: ignoring parse error: unfinished abandoned text at EOF', file=sys.stderr)
+            return
+        try:
+            records = (StreamParser([segment]).records() if stream
+                       else parse_json_values([segment], sequence=True))
+            yield from records
+        except RuntimeErrorJq as exc:
+            if stream_errors:
+                yield [str(exc), exc.path if isinstance(exc, StreamParseError) else []]
+            else:
+                print('jq: ignoring parse error: ' + str(exc), file=sys.stderr)
+
+
 class InputStream:
     """One shared input cursor for automatic iteration and input/inputs."""
 
-    def __init__(self, paths, raw_mode, slurp, stream=False, stream_errors=False):
+    def __init__(self, paths, raw_mode, slurp, stream=False, stream_errors=False, sequence=False):
         self.paths = paths or ['-']
         self.raw_mode = raw_mode
         self.slurp = slurp
         self.stream = stream
         self.stream_errors = stream_errors
+        self.sequence = sequence
         self.file_error = False
 
     def chunks(self):
@@ -979,8 +1019,12 @@ class InputStream:
             if pending:
                 yield pending
         else:
-            records = (parse_json_stream(self.chunks(), self.stream_errors) if self.stream
-                       else parse_json_values(self.chunks()))
+            if self.sequence:
+                records = parse_json_sequence(self.chunks(), self.stream, self.stream_errors)
+            elif self.stream:
+                records = parse_json_stream(self.chunks(), self.stream_errors)
+            else:
+                records = parse_json_values(self.chunks())
             if self.slurp:
                 yield list(records)
             else:
@@ -1008,6 +1052,8 @@ def main():
                 flags.add('stream')
                 if option == '--stream-errors':
                     flags.add('stream-errors')
+            elif option == '--seq':
+                flags.add('seq')
             elif option.startswith('--') or any(c not in 'nscerR' for c in option[1:]):
                 raise CompileError('unsupported option ' + option)
             else:
@@ -1017,7 +1063,7 @@ def main():
         program = Parser(argv.pop(0)).parse()
         validate_variables(program, set(variables))
         input_stream = InputStream(argv, 'R' in flags, 's' in flags,
-                                   'stream' in flags, 'stream-errors' in flags)
+                                   'stream' in flags, 'stream-errors' in flags, 'seq' in flags)
         cursor = iter(input_stream)
         variables['@inputs'] = cursor
         source = [None] if 'n' in flags else cursor
@@ -1027,14 +1073,16 @@ def main():
             for result in values(program, item, variables):
                 output_count += 1
                 last = result
-                if ('r' in flags or 'raw-output0' in flags) and isinstance(result, str):
+                raw_output = ('r' in flags or 'raw-output0' in flags) and isinstance(result, str)
+                if raw_output:
                     if 'raw-output0' in flags and '\0' in result:
                         raise RuntimeErrorJq('cannot output string containing NUL with --raw-output0')
                     output = result
                 else:
                     output = json.dumps(result, ensure_ascii=False, separators=(',', ':') if 'c' in flags else None,
                                         indent=None if 'c' in flags else 2)
-                sys.stdout.write(output + ('\0' if 'raw-output0' in flags else '\n'))
+                prefix = '\x1e' if 'seq' in flags and not raw_output else ''
+                sys.stdout.write(prefix + output + ('\0' if 'raw-output0' in flags else '\n'))
         if input_stream.file_error:
             return 2
         if 'e' in flags:
