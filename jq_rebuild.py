@@ -61,6 +61,27 @@ class Parser:
         return node
 
     def pipe(self):
+        if self.peek('def'):
+            self.take('def')
+            name = self.take()
+            if name[0] != 'word':
+                raise CompileError('expected function name')
+            parameters = []
+            if self.peek('('):
+                self.take('(')
+                while True:
+                    parameter = self.take()
+                    if parameter[0] not in ('word', 'variable'):
+                        raise CompileError('expected function parameter')
+                    parameters.append((parameter[0], parameter[1].lstrip('$')))
+                    if not self.peek(';'):
+                        break
+                    self.take(';')
+                self.take(')')
+            self.take(':')
+            body = self.pipe()
+            self.take(';')
+            return ('def', name[1], parameters, body, self.pipe())
         node = self.comma()
         if self.peek('as'):
             self.take('as')
@@ -229,9 +250,13 @@ class Parser:
                     node = ('try', body, ('call', 'empty', None))
             elif self.peek('('):
                 self.take('(')
-                argument = self.pipe()
+                arguments = [self.pipe()]
+                while self.peek(';'):
+                    self.take(';')
+                    arguments.append(self.pipe())
                 self.take(')')
-                node = ('call', value, argument)
+                node = (('call', value, arguments[0]) if len(arguments) == 1
+                        else ('call_multi', value, arguments))
             else:
                 node = ('call', value, None)
         else:
@@ -418,37 +443,75 @@ def pattern_names(pattern):
     return set().union(*(pattern_names(child) for child in children))
 
 
-def validate_variables(node, names):
+_BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
+                    ('tonumber', 0), ('inputs', 0), ('input', 0), ('error', 1),
+                    ('sort', 0)}
+
+
+def validate_variables(node, names, functions=None, visiting=None):
+    if functions is None:
+        functions = {}
+    if visiting is None:
+        visiting = set()
+    def check(child, scope=names, definitions=functions):
+        validate_variables(child, scope, definitions, visiting)
+
     kind = node[0]
     if kind == 'variable':
         if node[1] not in names:
             raise CompileError('$' + node[1] + ' is not defined')
+    elif kind == 'def':
+        _, name, parameters, body, rest = node
+        definitions = dict(functions)
+        definition = (parameters, body, names.copy(), definitions)
+        definitions[(name, len(parameters))] = definition
+        check(rest, names, definitions)
     elif kind == 'bind':
-        validate_variables(node[1], names)
-        validate_variables(node[3], names | pattern_names(node[2]))
+        check(node[1])
+        check(node[3], names | pattern_names(node[2]))
     elif kind in ('reduce', 'foreach'):
-        validate_variables(node[1], names)
-        validate_variables(node[3], names)
+        check(node[1])
+        check(node[3])
         scope = names | pattern_names(node[2])
-        validate_variables(node[4], scope)
+        check(node[4], scope)
         if node[5] is not None:
-            validate_variables(node[5], scope)
+            check(node[5], scope)
     elif kind in ('array', 'negate', 'field', 'iterate'):
-        validate_variables(node[1], names)
+        check(node[1])
     elif kind in ('pipe', 'comma', 'index', 'try'):
-        validate_variables(node[1], names)
-        validate_variables(node[2], names)
+        check(node[1])
+        check(node[2])
     elif kind in ('binary', 'assignment'):
-        validate_variables(node[2], names)
-        validate_variables(node[3], names)
+        check(node[2])
+        check(node[3])
     elif kind == 'if':
         for child in node[1:]:
-            validate_variables(child, names)
+            check(child)
     elif kind == 'object':
         for _, child in node[1]:
-            validate_variables(child, names)
-    elif kind == 'call' and node[2] is not None:
-        validate_variables(node[2], names)
+            check(child)
+    elif kind in ('call', 'call_multi'):
+        arguments = (node[2] if kind == 'call_multi' else
+                     [] if node[2] is None else [node[2]])
+        for argument in arguments:
+            check(argument)
+        key = (node[1], len(arguments))
+        if key in functions:
+            definition = functions[key]
+            if definition is not None and id(definition) not in visiting:
+                parameters, body, captured_names, captured_functions = definition
+                local_names = captured_names | {name for mode, name in parameters if mode == 'variable'}
+                local_functions = dict(captured_functions)
+                for mode, name in parameters:
+                    if mode == 'word':
+                        local_functions[(name, 0)] = None
+                visiting.add(id(definition))
+                try:
+                    check(body, local_names, local_functions)
+                finally:
+                    visiting.remove(id(definition))
+        elif key not in _BUILTIN_ARITIES:
+            raise CompileError(f'{key[0]}/{key[1]} is not defined or supported')
 
 
 def values(node, value, variables):
@@ -457,6 +520,13 @@ def values(node, value, variables):
         yield value
     elif kind == 'literal':
         yield node[1]
+    elif kind == 'def':
+        _, name, parameters, body, rest = node
+        captured = dict(variables)
+        definitions = dict(variables.get('@functions', {}))
+        captured['@functions'] = definitions
+        definitions[(name, len(parameters))] = ('definition', parameters, body, captured)
+        yield from values(rest, value, {**variables, '@functions': definitions})
     elif kind == 'negate':
         for item in values(node[1], value, variables):
             if type(item) not in (int, float):
@@ -596,8 +666,34 @@ def values(node, value, variables):
                     comparison = compare_values(left_value, right_value)
                     yield {'>': comparison > 0, '<': comparison < 0,
                            '>=': comparison >= 0, '<=': comparison <= 0}[op]
-    elif kind == 'call':
-        name, argument = node[1:]
+    elif kind in ('call', 'call_multi'):
+        name = node[1]
+        arguments = (node[2] if kind == 'call_multi' else
+                     [] if node[2] is None else [node[2]])
+        definition = variables.get('@functions', {}).get((name, len(arguments)))
+        if definition is not None:
+            if definition[0] == 'filter':
+                yield from values(definition[1], value, definition[2])
+                return
+            _, parameters, body, captured = definition
+
+            def apply_parameters(index, scope):
+                if index == len(parameters):
+                    yield from values(body, value, scope)
+                    return
+                mode, parameter = parameters[index]
+                argument = arguments[index]
+                if mode == 'word':
+                    definitions = dict(scope.get('@functions', {}))
+                    definitions[(parameter, 0)] = ('filter', argument, variables)
+                    yield from apply_parameters(index + 1, {**scope, '@functions': definitions})
+                else:
+                    for item in values(argument, value, variables):
+                        yield from apply_parameters(index + 1, {**scope, parameter: item})
+
+            yield from apply_parameters(0, captured)
+            return
+        argument = arguments[0] if len(arguments) == 1 else None
         if name == 'empty' and argument is None:
             return
         if name == 'length' and argument is None:
