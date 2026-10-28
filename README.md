@@ -1,0 +1,12 @@
+# jq reconstruction — work in progress
+
+This is an independent implementation based on the Recipkg jq recipe. It is not
+the upstream jq source, a wrapper around an installed jq, or a complete jq
+replacement. Its current supported grammar and CLI options are intentionally
+limited; unsupported syntax must fail rather than silently produce results.
+Use Python 3.11 or newer and run `./jq --version` or `./jq -c '.items[] | .name'`.
+
+The target remains the full behavior of jq 1.8.2, including its libraries,
+streaming, errors, precision and platforms. The current recipe is incomplete,
+so missing specifications and failed or unrun compatibility tests are tracked
+as unresolved work. See `STATUS.md` before using this implementation.
