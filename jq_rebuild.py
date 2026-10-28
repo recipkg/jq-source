@@ -4,7 +4,7 @@ This is deliberately incomplete. Reject unsupported operations explicitly.
 """
 import codecs
 import copy
-from decimal import Decimal, InvalidOperation
+from decimal import Context, Decimal, InvalidOperation, ROUND_HALF_EVEN
 import functools
 import json
 import math
@@ -45,7 +45,12 @@ def is_number(value):
 
 
 def as_float(value):
-    return float(value.decimal) if isinstance(value, JqNumber) else float(value)
+    if not isinstance(value, JqNumber):
+        return float(value)
+    decimal = value.decimal
+    if decimal.is_zero() or decimal.adjusted() < -325 or decimal.adjusted() > 309:
+        return float(decimal)
+    return float(Context(prec=17, rounding=ROUND_HALF_EVEN).create_decimal(decimal))
 
 
 def as_index(value):
