@@ -3,6 +3,7 @@
 This is deliberately incomplete. Reject unsupported operations explicitly.
 """
 import copy
+import functools
 import json
 import re
 import sys
@@ -19,13 +20,15 @@ class RuntimeErrorJq(Exception):
 TOKEN = re.compile(
     r'\s*(?:(?P<string>"(?:\\.|[^"\\])*")|(?P<number>-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)'
     r'|(?P<variable>\$[A-Za-z_][A-Za-z_0-9]*)|(?P<word>[A-Za-z_][A-Za-z_0-9]*)'
-    r'|(?P<op>==|!=|>=|<=|//|\|=|[.\[\](),|+<>=?]))'
+    r'|(?P<op>==|!=|>=|<=|//|\|=|[.\[\]{}:,()|+<>=?]))'
 )
 
 
 class Parser:
     def __init__(self, text):
         self.tokens = []
+        self.positions = []
+        offset = 0
         while text:
             if not text.strip():
                 break
@@ -33,6 +36,9 @@ class Parser:
             if not match:
                 raise CompileError('unsupported or invalid syntax near ' + repr(text[:20]))
             self.tokens.append((match.lastgroup, match.group(match.lastgroup)))
+            self.positions.append((offset + match.start(match.lastgroup),
+                                   offset + match.end(match.lastgroup)))
+            offset += match.end()
             text = text[match.end():]
         self.pos = 0
 
@@ -69,15 +75,36 @@ class Parser:
         return node
 
     def assignment(self):
-        node = self.compare()
+        node = self.alternative()
         if self.peek('=') or self.peek('|='):
             operator = self.take()[1]
             node = ('assignment', operator, node, self.assignment())
         return node
 
+    def alternative(self):
+        node = self.logical_or()
+        while self.peek('//'):
+            self.take('//')
+            node = ('binary', '//', node, self.logical_or())
+        return node
+
+    def logical_or(self):
+        node = self.logical_and()
+        while self.peek('or'):
+            self.take('or')
+            node = ('binary', 'or', node, self.logical_and())
+        return node
+
+    def logical_and(self):
+        node = self.compare()
+        while self.peek('and'):
+            self.take('and')
+            node = ('binary', 'and', node, self.compare())
+        return node
+
     def compare(self):
         node = self.addition()
-        while self.peek() and self.peek()[1] in ('==', '!=', '>', '<', '>=', '<=', '//'):
+        while self.peek() and self.peek()[1] in ('==', '!=', '>', '<', '>=', '<='):
             operator = self.take()[1]
             node = ('binary', operator, node, self.addition())
         return node
@@ -94,7 +121,8 @@ class Parser:
         kind, value = token
         if value == '.':
             node = ('identity',)
-            if self.peek() and self.peek()[0] == 'word':
+            if (self.peek() and self.peek()[0] == 'word' and
+                    self.positions[self.pos][0] == self.positions[self.pos - 1][1]):
                 node = ('field', node, self.take()[1])
         elif value == '(':
             node = self.pipe()
@@ -105,6 +133,20 @@ class Parser:
                 return ('literal', [])
             node = ('array', self.pipe())
             self.take(']')
+        elif value == '{':
+            fields = []
+            while not self.peek('}'):
+                key = self.take()
+                if key[0] not in ('word', 'string'):
+                    raise CompileError('expected object key')
+                name = json.loads(key[1]) if key[0] == 'string' else key[1]
+                self.take(':')
+                fields.append((name, self.assignment()))
+                if not self.peek(','):
+                    break
+                self.take(',')
+            self.take('}')
+            node = ('object', fields)
         elif kind == 'string':
             try:
                 node = ('literal', json.loads(value))
@@ -117,6 +159,9 @@ class Parser:
         elif kind == 'word':
             if value in ('true', 'false', 'null'):
                 node = ('literal', {'true': True, 'false': False, 'null': None}[value])
+            elif value == 'if':
+                node = self.conditional()
+                self.take('end')
             elif value == 'try':
                 body = self.assignment()
                 if self.peek('catch'):
@@ -153,9 +198,62 @@ class Parser:
             node = ('try', node, ('call', 'empty', None))
         return node
 
+    def conditional(self):
+        condition = self.pipe()
+        self.take('then')
+        yes = self.pipe()
+        if self.peek('elif'):
+            self.take('elif')
+            no = self.conditional()
+        elif self.peek('else'):
+            self.take('else')
+            no = self.pipe()
+        else:
+            no = ('identity',)
+        return ('if', condition, yes, no)
+
 
 def truth(value):
     return value is not None and value is not False
+
+
+def value_order(value):
+    if value is None:
+        return 0
+    if value is False:
+        return 1
+    if value is True:
+        return 2
+    if type(value) in (int, float):
+        return 3
+    if isinstance(value, str):
+        return 4
+    if isinstance(value, list):
+        return 5
+    if isinstance(value, dict):
+        return 6
+    raise RuntimeErrorJq('unsupported JSON value')
+
+
+def compare_values(left, right):
+    left_type, right_type = value_order(left), value_order(right)
+    if left_type != right_type:
+        return (left_type > right_type) - (left_type < right_type)
+    if left_type in (0, 1, 2):
+        return 0
+    if left_type in (3, 4):
+        return (left > right) - (left < right)
+    if left_type == 6:
+        left_keys, right_keys = sorted(left), sorted(right)
+        key_comparison = compare_values(left_keys, right_keys)
+        if key_comparison:
+            return key_comparison
+        left, right = [left[key] for key in left_keys], [right[key] for key in right_keys]
+    for a, b in zip(left, right):
+        result = compare_values(a, b)
+        if result:
+            return result
+    return (len(left) > len(right)) - (len(left) < len(right))
 
 
 def paths(node, root, variables):
@@ -280,6 +378,18 @@ def values(node, value, variables):
         yield from values(node[2], value, variables)
     elif kind == 'array':
         yield list(values(node[1], value, variables))
+    elif kind == 'object':
+        def build(fields, index, result):
+            if index == len(fields):
+                yield result
+                return
+            name, expression = fields[index]
+            for field_value in values(expression, value, variables):
+                yield from build(fields, index + 1, {**result, name: field_value})
+        yield from build(node[1], 0, {})
+    elif kind == 'if':
+        for condition in values(node[1], value, variables):
+            yield from values(node[2] if truth(condition) else node[3], value, variables)
     elif kind == 'try':
         try:
             yield from values(node[1], value, variables)
@@ -303,8 +413,23 @@ def values(node, value, variables):
     elif kind == 'binary':
         op, left, right = node[1:]
         if op == '//':
-            good = [item for item in values(left, value, variables) if truth(item)]
-            yield from good if good else values(right, value, variables)
+            found = False
+            for item in values(left, value, variables):
+                if truth(item):
+                    found = True
+                    yield item
+            if not found:
+                yield from values(right, value, variables)
+            return
+        if op in ('and', 'or'):
+            for item in values(left, value, variables):
+                if op == 'and' and not truth(item):
+                    yield False
+                elif op == 'or' and truth(item):
+                    yield True
+                else:
+                    for other in values(right, value, variables):
+                        yield truth(other)
             return
         for right_value in values(right, value, variables):
             for left_value in values(left, value, variables):
@@ -320,17 +445,12 @@ def values(node, value, variables):
                     else:
                         raise RuntimeErrorJq('incompatible operands for addition')
                 elif op in ('==', '!='):
-                    equal = (type(left_value) is type(right_value) or
-                             type(left_value) in (int, float) and type(right_value) in (int, float)) and left_value == right_value
+                    equal = compare_values(left_value, right_value) == 0
                     yield equal if op == '==' else not equal
                 else:
-                    if type(left_value) is not type(right_value):
-                        raise RuntimeErrorJq('cross-type ordering not implemented')
-                    try:
-                        yield {'>': lambda: left_value > right_value, '<': lambda: left_value < right_value,
-                               '>=': lambda: left_value >= right_value, '<=': lambda: left_value <= right_value}[op]()
-                    except TypeError as exc:
-                        raise RuntimeErrorJq('ordering not implemented for this type') from exc
+                    comparison = compare_values(left_value, right_value)
+                    yield {'>': comparison > 0, '<': comparison < 0,
+                           '>=': comparison >= 0, '<=': comparison <= 0}[op]
     elif kind == 'call':
         name, argument = node[1:]
         if name == 'empty' and argument is None:
@@ -370,6 +490,13 @@ def values(node, value, variables):
             if item is _MISSING:
                 raise RuntimeErrorJq('input exhausted')
             yield item
+        elif name == 'error' and argument is not None:
+            for message in values(argument, value, variables):
+                raise RuntimeErrorJq(str(message))
+        elif name == 'sort' and argument is None:
+            if not isinstance(value, list):
+                raise RuntimeErrorJq('sort requires an array')
+            yield sorted(value, key=functools.cmp_to_key(compare_values))
         elif name != 'empty':
             raise CompileError('unknown or unsupported filter ' + name)
     else:
