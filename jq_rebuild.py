@@ -4,8 +4,10 @@ This is deliberately incomplete. Reject unsupported operations explicitly.
 """
 import codecs
 import copy
+from decimal import Decimal, InvalidOperation
 import functools
 import json
+import math
 import re
 import sys
 
@@ -16,6 +18,95 @@ class CompileError(Exception):
 
 class RuntimeErrorJq(Exception):
     pass
+
+
+class JqNumber:
+    """A decimal literal that keeps its value and display precision."""
+
+    def __init__(self, text):
+        try:
+            self.decimal = Decimal(text)
+        except InvalidOperation as exc:
+            raise RuntimeErrorJq('invalid numeric literal') from exc
+
+    @classmethod
+    def from_decimal(cls, value):
+        result = cls.__new__(cls)
+        result.decimal = value
+        return result
+
+    def negate(self):
+        value = self.decimal.copy_abs() if self.decimal.is_zero() else self.decimal.copy_negate()
+        return self.from_decimal(value)
+
+
+def is_number(value):
+    return isinstance(value, JqNumber) or type(value) in (int, float)
+
+
+def as_float(value):
+    return float(value.decimal) if isinstance(value, JqNumber) else float(value)
+
+
+def as_index(value):
+    if not is_number(value):
+        return None
+    number = as_float(value)
+    if not math.isfinite(number):
+        return None
+    return int(number)
+
+
+def format_float(value):
+    if math.isnan(value):
+        return 'null'
+    if math.isinf(value):
+        value = math.copysign(sys.float_info.max, value)
+    decimal = Decimal(repr(value))
+    if decimal.is_zero():
+        return '-0' if decimal.is_signed() else '0'
+    sign, raw_digits, exponent = decimal.as_tuple()
+    digits = ''.join(str(digit) for digit in raw_digits).lstrip('0')
+    digits = digits.rstrip('0')
+    magnitude = decimal.adjusted()
+    if -4 <= magnitude < len(digits) + 15:
+        result = format(decimal, 'f')
+        if '.' in result:
+            result = result.rstrip('0').rstrip('.')
+        return result
+    mantissa = digits[0] + ('.' + digits[1:] if len(digits) > 1 else '')
+    sign_text = '-' if sign else ''
+    exponent_text = ('+' if magnitude >= 0 else '-') + f'{abs(magnitude):02d}'
+    return sign_text + mantissa + 'e' + exponent_text
+
+
+def dump_json(value, compact=False, depth=0):
+    if isinstance(value, JqNumber):
+        return str(value.decimal)
+    if isinstance(value, float):
+        return format_float(value)
+    if value is None or isinstance(value, (bool, int, str)):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (list, dict)):
+        is_dict = isinstance(value, dict)
+        items = list(value.items()) if is_dict else value
+        if not items:
+            return '{}' if is_dict else '[]'
+        rendered = []
+        for item in items:
+            if is_dict:
+                key, child = item
+                text = json.dumps(key, ensure_ascii=False) + (':' if compact else ': ')
+                text += dump_json(child, compact, depth + 1)
+            else:
+                text = dump_json(item, compact, depth + 1)
+            rendered.append(text)
+        left, right = ('{', '}') if is_dict else ('[', ']')
+        if compact:
+            return left + ','.join(rendered) + right
+        indentation = '  ' * (depth + 1)
+        return left + '\n' + indentation + (',\n' + indentation).join(rendered) + '\n' + '  ' * depth + right
+    raise RuntimeErrorJq('unsupported JSON value')
 
 
 TOKEN = re.compile(
@@ -217,7 +308,7 @@ class Parser:
             except ValueError as exc:
                 raise CompileError(str(exc)) from exc
         elif kind == 'number':
-            node = ('literal', json.loads(value))
+            node = ('literal', JqNumber(value))
         elif kind == 'variable':
             node = ('variable', value[1:])
         elif kind == 'word':
@@ -308,7 +399,7 @@ def value_order(value):
         return 1
     if value is True:
         return 2
-    if type(value) in (int, float):
+    if is_number(value):
         return 3
     if isinstance(value, str):
         return 4
@@ -325,7 +416,13 @@ def compare_values(left, right):
         return (left_type > right_type) - (left_type < right_type)
     if left_type in (0, 1, 2):
         return 0
-    if left_type in (3, 4):
+    if left_type == 3:
+        if isinstance(left, JqNumber) and isinstance(right, JqNumber):
+            left, right = left.decimal, right.decimal
+        else:
+            left, right = as_float(left), as_float(right)
+        return (left > right) - (left < right)
+    if left_type == 4:
         return (left > right) - (left < right)
     if left_type == 6:
         left_keys, right_keys = sorted(left), sorted(right)
@@ -365,8 +462,8 @@ def paths(node, root, variables):
                 for index in values(node[2], root, variables):
                     if isinstance(index, str) and (current is None or isinstance(current, dict)):
                         yield prefix + (index,)
-                    elif type(index) is int and isinstance(current, list):
-                        yield prefix + (index,)
+                    elif is_number(index) and isinstance(current, list) and as_index(index) is not None:
+                        yield prefix + (as_index(index),)
                     else:
                         raise RuntimeErrorJq('invalid assignment index')
     else:
@@ -446,7 +543,7 @@ def pattern_names(pattern):
 
 _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('tonumber', 0), ('inputs', 0), ('input', 0), ('error', 1),
-                    ('sort', 0)}
+                    ('sort', 0), ('have_decnum', 0)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -530,9 +627,9 @@ def values(node, value, variables):
         yield from values(rest, value, {**variables, '@functions': definitions})
     elif kind == 'negate':
         for item in values(node[1], value, variables):
-            if type(item) not in (int, float):
+            if not is_number(item):
                 raise RuntimeErrorJq('cannot negate this value')
-            yield -item
+            yield item.negate() if isinstance(item, JqNumber) else -item
     elif kind == 'variable':
         if node[1] not in variables:
             raise CompileError('$' + node[1] + ' is not defined')
@@ -558,8 +655,9 @@ def values(node, value, variables):
             for index in values(node[2], value, variables):
                 if isinstance(target, dict) and isinstance(index, str):
                     yield target.get(index)
-                elif isinstance(target, list) and isinstance(index, int) and not isinstance(index, bool):
-                    yield target[index] if -len(target) <= index < len(target) else None
+                elif isinstance(target, list) and is_number(index):
+                    position = as_index(index)
+                    yield target[position] if position is not None and -len(target) <= position < len(target) else None
                 elif target is None:
                     yield None
                 else:
@@ -652,14 +750,17 @@ def values(node, value, variables):
                         yield left_value
                     elif isinstance(left_value, dict) and isinstance(right_value, dict):
                         yield {**left_value, **right_value}
-                    elif type(left_value) is type(right_value) and isinstance(left_value, (int, float, str, list)):
+                    elif is_number(left_value) and is_number(right_value):
+                        yield as_float(left_value) + as_float(right_value)
+                    elif type(left_value) is type(right_value) and isinstance(left_value, (str, list)):
                         yield left_value + right_value
                     else:
                         raise RuntimeErrorJq('incompatible operands for addition')
                 elif op in ('-', '*'):
-                    if type(left_value) not in (int, float) or type(right_value) not in (int, float):
+                    if not is_number(left_value) or not is_number(right_value):
                         raise RuntimeErrorJq('incompatible numeric operands')
-                    yield left_value - right_value if op == '-' else left_value * right_value
+                    left_number, right_number = as_float(left_value), as_float(right_value)
+                    yield left_number - right_number if op == '-' else left_number * right_number
                 elif op in ('==', '!='):
                     equal = compare_values(left_value, right_value) == 0
                     yield equal if op == '==' else not equal
@@ -697,11 +798,15 @@ def values(node, value, variables):
         argument = arguments[0] if len(arguments) == 1 else None
         if name == 'empty' and argument is None:
             return
-        if name == 'length' and argument is None:
+        if name == 'have_decnum' and argument is None:
+            yield True
+        elif name == 'length' and argument is None:
             if value is None:
                 yield 0
             elif isinstance(value, (str, list, dict)):
                 yield len(value)
+            elif isinstance(value, JqNumber):
+                yield JqNumber.from_decimal(value.decimal.copy_abs())
             elif type(value) in (int, float):
                 yield abs(value)
             else:
@@ -713,14 +818,14 @@ def values(node, value, variables):
                 if truth(condition):
                     yield value
         elif name == 'tonumber' and argument is None:
-            if type(value) in (int, float):
+            if is_number(value):
                 yield value
             elif isinstance(value, str):
                 try:
-                    parsed = json.loads(value)
-                except ValueError as exc:
+                    parsed = decode_atom(value)
+                except RuntimeErrorJq as exc:
                     raise RuntimeErrorJq('cannot parse number') from exc
-                if type(parsed) not in (int, float):
+                if not is_number(parsed) and not (parsed is None and value.lower() in ('nan', '+nan', '-nan')):
                     raise RuntimeErrorJq('cannot parse number')
                 yield parsed
             else:
@@ -756,7 +861,7 @@ def parse_json_values(chunks, sequence=False):
         if not reader.peek():
             return
         item = parser.value()
-        if sequence and type(item) in (int, float) and not reader.peek():
+        if sequence and is_number(item) and not reader.peek():
             raise RuntimeErrorJq('potentially truncated top-level numeric value')
         yield item
 
@@ -810,14 +915,7 @@ def decode_atom(token):
         return -sys.float_info.max
     if not NUMBER_LITERAL.fullmatch(token):
         raise RuntimeErrorJq('invalid JSON literal')
-    if '.' not in token and 'e' not in token.lower():
-        return int(token)
-    if token.endswith('.'):
-        return int(token[:-1])
-    number = float(token)
-    if number == float('inf') or number == float('-inf'):
-        raise RuntimeErrorJq('numeric literal exceeds supported range')
-    return number
+    return JqNumber(token)
 
 
 def decode_string(text):
@@ -1128,7 +1226,13 @@ def main():
                 if len(argv) < 2:
                     raise CompileError(option + ' requires name and value')
                 name, raw = argv.pop(0), argv.pop(0)
-                variables[name] = json.loads(raw) if option == '--argjson' else raw
+                if option == '--argjson':
+                    parsed = list(parse_json_values([raw]))
+                    if len(parsed) != 1:
+                        raise CompileError('--argjson requires one JSON value')
+                    variables[name] = parsed[0]
+                else:
+                    variables[name] = raw
             elif option == '--raw-output0':
                 flags.add('raw-output0')
             elif option in ('--stream', '--stream-errors'):
@@ -1162,8 +1266,7 @@ def main():
                         raise RuntimeErrorJq('cannot output string containing NUL with --raw-output0')
                     output = result
                 else:
-                    output = json.dumps(result, ensure_ascii=False, separators=(',', ':') if 'c' in flags else None,
-                                        indent=None if 'c' in flags else 2)
+                    output = dump_json(result, compact='c' in flags)
                 prefix = '\x1e' if 'seq' in flags and not raw_output else ''
                 sys.stdout.write(prefix + output + ('\0' if 'raw-output0' in flags else '\n'))
         if input_stream.file_error:
