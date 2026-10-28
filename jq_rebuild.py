@@ -363,6 +363,13 @@ def values(node, value, variables):
                 yield parsed
             else:
                 raise RuntimeErrorJq('cannot convert value to number')
+        elif name == 'inputs' and argument is None:
+            yield from variables['@inputs']
+        elif name == 'input' and argument is None:
+            item = next(variables['@inputs'], _MISSING)
+            if item is _MISSING:
+                raise RuntimeErrorJq('input exhausted')
+            yield item
         elif name != 'empty':
             raise CompileError('unknown or unsupported filter ' + name)
     else:
@@ -372,28 +379,81 @@ def values(node, value, variables):
 _MISSING = object()
 
 
-def inputs(raw, raw_mode, slurp):
-    if raw_mode:
-        yield from [raw] if slurp else raw.splitlines()
-        return
+def parse_json_values(chunks):
     decoder = json.JSONDecoder()
-    position = 0
-    found = []
-    while position < len(raw):
-        while position < len(raw) and raw[position].isspace():
-            position += 1
-        if position == len(raw):
-            break
+    chunks = iter(chunks)
+    pending = ''
+    exhausted = False
+    while True:
+        pending = pending.lstrip()
+        if not pending and exhausted:
+            return
+        if not pending:
+            try:
+                pending += next(chunks)
+            except StopIteration:
+                exhausted = True
+            continue
         try:
-            item, position = decoder.raw_decode(raw, position)
+            item, end = decoder.raw_decode(pending)
         except ValueError as exc:
-            raise RuntimeErrorJq('invalid JSON input: ' + str(exc)) from exc
-        if slurp:
-            found.append(item)
+            if exhausted:
+                raise RuntimeErrorJq('invalid JSON input: ' + str(exc)) from exc
+            try:
+                pending += next(chunks)
+            except StopIteration:
+                exhausted = True
+            continue
+        scalar = item is None or type(item) in (bool, int, float)
+        if scalar and end == len(pending) and not exhausted:
+            try:
+                pending += next(chunks)
+            except StopIteration:
+                exhausted = True
+            continue
+        if scalar and end < len(pending) and not (pending[end].isspace() or pending[end] in '[{"'):
+            raise RuntimeErrorJq('invalid JSON literal')
+        yield item
+        pending = pending[end:]
+
+
+class InputStream:
+    """One shared input cursor for automatic iteration and input/inputs."""
+
+    def __init__(self, paths, raw_mode, slurp):
+        self.paths = paths or ['-']
+        self.raw_mode = raw_mode
+        self.slurp = slurp
+        self.file_error = False
+
+    def chunks(self):
+        for path in self.paths:
+            if path == '-':
+                yield sys.stdin.read()
+            else:
+                try:
+                    with open(path, encoding='utf-8', errors='replace', newline='') as source:
+                        yield source.read()
+                except OSError as exc:
+                    self.file_error = True
+                    print(f'jq: could not open file {path}: {exc.strerror}', file=sys.stderr)
+
+    def __iter__(self):
+        if self.raw_mode and self.slurp:
+            yield ''.join(self.chunks())
+        elif self.raw_mode:
+            pending = ''
+            for chunk in self.chunks():
+                pending += chunk
+                lines = pending.split('\n')
+                pending = lines.pop()
+                yield from lines
+            if pending:
+                yield pending
+        elif self.slurp:
+            yield list(parse_json_values(self.chunks()))
         else:
-            yield item
-    if slurp:
-        yield found
+            yield from parse_json_values(self.chunks())
 
 
 def main():
@@ -411,26 +471,35 @@ def main():
                     raise CompileError(option + ' requires name and value')
                 name, raw = argv.pop(0), argv.pop(0)
                 variables[name] = json.loads(raw) if option == '--argjson' else raw
+            elif option == '--raw-output0':
+                flags.add('raw-output0')
             elif option.startswith('--') or any(c not in 'nscerR' for c in option[1:]):
                 raise CompileError('unsupported option ' + option)
             else:
                 flags.update(option[1:])
-        if len(argv) != 1:
-            raise CompileError('expected one filter; input files are not yet supported')
-        program = Parser(argv[0]).parse()
-        raw = '' if 'n' in flags else sys.stdin.read()
-        source = [None] if 'n' in flags else inputs(raw, 'R' in flags, 's' in flags)
+        if not argv:
+            raise CompileError('expected one filter')
+        program = Parser(argv.pop(0)).parse()
+        input_stream = InputStream(argv, 'R' in flags, 's' in flags)
+        cursor = iter(input_stream)
+        variables['@inputs'] = cursor
+        source = [None] if 'n' in flags else cursor
         output_count = 0
         last = None
         for item in source:
             for result in values(program, item, variables):
                 output_count += 1
                 last = result
-                if 'r' in flags and isinstance(result, str):
-                    print(result)
+                if ('r' in flags or 'raw-output0' in flags) and isinstance(result, str):
+                    if 'raw-output0' in flags and '\0' in result:
+                        raise RuntimeErrorJq('cannot output string containing NUL with --raw-output0')
+                    output = result
                 else:
-                    print(json.dumps(result, ensure_ascii=False, separators=(',', ':') if 'c' in flags else None,
-                                     indent=None if 'c' in flags else 2))
+                    output = json.dumps(result, ensure_ascii=False, separators=(',', ':') if 'c' in flags else None,
+                                        indent=None if 'c' in flags else 2)
+                sys.stdout.write(output + ('\0' if 'raw-output0' in flags else '\n'))
+        if input_stream.file_error:
+            return 2
         if 'e' in flags:
             return 4 if output_count == 0 else 0 if truth(last) else 1
         return 0
