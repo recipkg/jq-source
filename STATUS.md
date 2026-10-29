@@ -206,3 +206,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented `path(expr)` for the path-expression forms covered by the existing path walker, plus `paths` recursive traversal and `paths(f)` predicate filtering. Samples cover present and missing object fields, null roots, array iteration/indexes, nested arrays/objects, empty structures, and numeric-value filtering.
 - All 3 path test methods passed, including deterministic comparisons over 100 generated JSON values; predicate-filtered paths also match the local reference. After this update, all 19 main jq contract methods and all 76 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
 - Complex path expressions, traversal error timing, unusual object ordering, resource limits, platform behavior and full jq compatibility remain incomplete or unverified.
+
+
+## Multiple path deletion iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.37 with its pinned recursive `software-quality` dependency. Black-box cases are in `recipkg/standard-library-verification` commit `c19b3b8`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented selected `delpaths(PATHS)` behavior for simultaneous object-key and array-element deletion. Array indices refer to the original input, so deletion order does not shift later paths. Samples include nested and overlapping paths, duplicates, missing keys, out-of-range indices, negative and fractional indices, null roots, empty paths deleting the root to null, and invalid path/container combinations.
+- All 4 delpaths test methods passed, including deterministic comparisons over 100 seeded nested values. The 19-method main jq contract suite passed; all 80 targeted `test_jq_*.py` methods passed before the fractional-index sample was added, and the updated delpaths file passed again against both candidate and local reference.
+- Exact diagnostics/error timing, extreme indices and resource limits, broader multi-result semantics, platforms, and full jq compatibility remain incomplete or unverified.

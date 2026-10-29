@@ -81,3 +81,8 @@ checked in the finite cases listed in `STATUS.md`.
 Selected `path(expr)` and `paths` behavior covers exact field/index paths,
 recursive container traversal, and predicate-filtered paths. Missing fields in
 exact paths and array iteration are limited to the samples in `STATUS.md`.
+
+Selected `delpaths(PATHS)` behavior removes multiple object keys and array
+elements in one operation, using original array indices. Duplicate, nested,
+missing, out-of-range, negative, and fractional-index cases are recorded in
+`STATUS.md`; this remains a finite tested slice.

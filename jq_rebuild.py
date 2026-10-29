@@ -721,6 +721,72 @@ def set_path(root, path, replacement):
     return update(root, path)
 
 
+def delete_paths(root, path_values):
+    if not isinstance(path_values, list):
+        raise RuntimeErrorJq('delpaths requires an array of paths')
+    for path in path_values:
+        if not isinstance(path, list):
+            raise RuntimeErrorJq('each deletion path must be an array')
+        if any(not isinstance(component, str) and not is_number(component)
+               for component in path):
+            raise RuntimeErrorJq('invalid deletion path component')
+
+    def delete(current, remaining_paths):
+        if any(not path for path in remaining_paths):
+            return None
+        if current is None:
+            return None
+        if isinstance(current, dict):
+            removed = set()
+            descendants = {}
+            for path in remaining_paths:
+                key, rest = path[0], path[1:]
+                if not isinstance(key, str):
+                    raise RuntimeErrorJq('cannot delete number field of object')
+                if key not in current:
+                    continue
+                if not rest:
+                    removed.add(key)
+                elif key not in removed:
+                    descendants.setdefault(key, []).append(rest)
+            result = copy.deepcopy(current)
+            for key, child_paths in descendants.items():
+                if key not in removed:
+                    result[key] = delete(current[key], child_paths)
+            for key in removed:
+                result.pop(key, None)
+            return result
+        if isinstance(current, list):
+            removed = set()
+            descendants = {}
+            for path in remaining_paths:
+                component, rest = path[0], path[1:]
+                if not is_number(component):
+                    raise RuntimeErrorJq('cannot delete string field of array')
+                index = as_index(component)
+                if index is None:
+                    raise RuntimeErrorJq('invalid deletion array index')
+                if index < 0:
+                    index += len(current)
+                if not 0 <= index < len(current):
+                    continue
+                if not rest:
+                    removed.add(index)
+                elif index not in removed:
+                    descendants.setdefault(index, []).append(rest)
+            result = []
+            for index, item in enumerate(current):
+                if index in removed:
+                    continue
+                if index in descendants:
+                    item = delete(item, descendants[index])
+                result.append(item)
+            return result
+        raise RuntimeErrorJq('cannot delete fields from a scalar')
+
+    return delete(root, path_values)
+
+
 def write_path(root, path, value, delete=False):
     if not path:
         return None if delete else value
@@ -799,7 +865,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('range', 1), ('range', 2), ('range', 3),
                     ('to_entries', 0), ('from_entries', 0), ('with_entries', 1),
                     ('transpose', 0), ('getpath', 1), ('setpath', 2),
-                    ('path', 1), ('paths', 0), ('paths', 1)}
+                    ('path', 1), ('paths', 0), ('paths', 1), ('delpaths', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -1241,6 +1307,10 @@ def values(node, value, variables):
                 item = read_path(value, path)
                 if any(truth(result) for result in values(arguments[0], item, variables)):
                     yield list(path)
+            return
+        if name == 'delpaths' and len(arguments) == 1:
+            for path_values in values(arguments[0], value, variables):
+                yield delete_paths(value, path_values)
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')
