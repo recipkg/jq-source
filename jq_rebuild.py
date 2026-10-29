@@ -915,7 +915,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('limit', 2), ('skip', 2),
                     ('while', 2), ('until', 2),
                     ('path', 1), ('paths', 0), ('paths', 1), ('pick', 1), ('del', 1),
-                    ('delpaths', 1)}
+                    ('delpaths', 1), ('test', 1), ('test', 2)}
 
 _MATH_FUNCTIONS = {
     'acos': math.acos,
@@ -1030,6 +1030,136 @@ def call_c_math(name, arguments):
         else:
             converted.append(number)
     return function(*converted)
+
+
+_ONIGURUMA_UNINITIALIZED = object()
+_ONIGURUMA_RUNTIME = _ONIGURUMA_UNINITIALIZED
+_ONIG_OPTION_FLAGS = {
+    'i': 1,
+    'x': 2,
+    'm': 4,
+    's': 8,
+    'p': 12,
+    'l': 16,
+    'n': 32,
+}
+
+
+class _OnigErrorInfo(ctypes.Structure):
+    _fields_ = [('enc', ctypes.c_void_p), ('par', ctypes.c_void_p),
+                ('par_end', ctypes.c_void_p)]
+
+
+def load_oniguruma():
+    global _ONIGURUMA_RUNTIME
+    if _ONIGURUMA_RUNTIME is not _ONIGURUMA_UNINITIALIZED:
+        return _ONIGURUMA_RUNTIME
+    _ONIGURUMA_RUNTIME = None
+    library_name = ctypes.util.find_library('onig')
+    if not library_name:
+        return None
+    try:
+        library = ctypes.CDLL(library_name)
+        encoding = ctypes.addressof(ctypes.c_char.in_dll(library, 'OnigEncodingUTF8'))
+        syntax = ctypes.addressof(ctypes.c_char.in_dll(library, 'OnigSyntaxPerl_NG'))
+        library.onig_initialize.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_int]
+        library.onig_initialize.restype = ctypes.c_int
+        encodings = (ctypes.c_void_p * 1)(encoding)
+        if library.onig_initialize(encodings, 1) != 0:
+            return None
+        library.onig_new.argtypes = [
+            ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.c_void_p,
+            ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p,
+            ctypes.POINTER(_OnigErrorInfo)]
+        library.onig_new.restype = ctypes.c_int
+        library.onig_search.argtypes = [
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint]
+        library.onig_search.restype = ctypes.c_int
+        library.onig_region_new.restype = ctypes.c_void_p
+        library.onig_region_free.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        library.onig_free.argtypes = [ctypes.c_void_p]
+        library.onig_error_code_to_str.restype = ctypes.c_int
+    except (AttributeError, OSError, ValueError):
+        return None
+    _ONIGURUMA_RUNTIME = (library, encoding, syntax)
+    return _ONIGURUMA_RUNTIME
+
+
+def oniguruma_error(library, status, error_info):
+    buffer = (ctypes.c_ubyte * 90)()
+    library.onig_error_code_to_str(buffer, status, ctypes.byref(error_info))
+    return bytes(buffer).split(b'\0', 1)[0].decode('utf-8', errors='replace')
+
+
+def regex_type_error(value, message):
+    return (f'{jq_type_name(value)} ({dump_json(value, compact=True)}) '
+            f'{message}')
+
+
+def regex_argument(value):
+    if isinstance(value, str):
+        return value, None
+    if isinstance(value, list):
+        if not value:
+            raise RuntimeErrorJq(jq_type_name(value) + ' not a string or array')
+        return value[0], value[1] if len(value) > 1 else None
+    raise RuntimeErrorJq(jq_type_name(value) + ' not a string or array')
+
+
+def oniguruma_test(input_value, pattern, flags):
+    if not isinstance(input_value, str):
+        raise RuntimeErrorJq(regex_type_error(
+            input_value, 'cannot be matched, as it is not a string'))
+    if not isinstance(pattern, str):
+        raise RuntimeErrorJq(regex_type_error(pattern, 'is not a string'))
+    if flags is not None and not isinstance(flags, str):
+        raise RuntimeErrorJq(regex_type_error(flags, 'is not a string'))
+    options = 256  # ONIG_OPTION_CAPTURE_GROUP
+    for flag in flags or '':
+        if flag == 'g':
+            continue
+        if flag not in _ONIG_OPTION_FLAGS:
+            raise RuntimeErrorJq((flags or '') + ' is not a valid modifier string')
+        options |= _ONIG_OPTION_FLAGS[flag]
+    runtime = load_oniguruma()
+    if runtime is None:
+        raise RuntimeErrorJq(
+            'jq was compiled without ONIGURUMA regex library. '
+            'match/test/sub and related functions are not available.')
+    library, encoding, syntax = runtime
+    pattern_bytes = pattern.encode('utf-8')
+    input_bytes = input_value.encode('utf-8')
+    pattern_buffer = ctypes.create_string_buffer(pattern_bytes)
+    input_buffer = ctypes.create_string_buffer(input_bytes)
+    pattern_start = ctypes.cast(pattern_buffer, ctypes.c_void_p)
+    pattern_end = ctypes.c_void_p(ctypes.addressof(pattern_buffer) + len(pattern_bytes))
+    input_start = ctypes.c_void_p(ctypes.addressof(input_buffer))
+    input_end = ctypes.c_void_p(ctypes.addressof(input_buffer) + len(input_bytes))
+    regex = ctypes.c_void_p()
+    error_info = _OnigErrorInfo()
+    status = library.onig_new(
+        ctypes.byref(regex), pattern_start, pattern_end, options,
+        encoding, syntax, ctypes.byref(error_info))
+    if status != 0:
+        raise RuntimeErrorJq('Regex failure: ' +
+                             oniguruma_error(library, status, error_info))
+    region = library.onig_region_new()
+    if not region:
+        library.onig_free(regex)
+        raise RuntimeErrorJq('regex match allocation failed')
+    try:
+        status = library.onig_search(
+            regex, input_start, input_end, input_start, input_end, region, 0)
+        if status == -1:  # ONIG_MISMATCH
+            return False
+        if status < 0:
+            raise RuntimeErrorJq('Regex failure: ' +
+                                 oniguruma_error(library, status, error_info))
+        return True
+    finally:
+        library.onig_region_free(region, 1)
+        library.onig_free(regex)
 
 
 _BUILTIN_ARITIES.update((name, 0) for name in _MATH_FUNCTIONS)
@@ -1382,6 +1512,16 @@ def values(node, value, variables):
             yield from apply_parameters(0, captured)
             return
         argument = arguments[0] if len(arguments) == 1 else None
+        if name == 'test' and len(arguments) == 1:
+            for candidate in values(arguments[0], value, variables):
+                pattern, flags = regex_argument(candidate)
+                yield oniguruma_test(value, pattern, flags)
+            return
+        if name == 'test' and len(arguments) == 2:
+            for flags in values(arguments[1], value, variables):
+                for pattern in values(arguments[0], value, variables):
+                    yield oniguruma_test(value, pattern, flags)
+            return
         if name == 'empty' and argument is None:
             return
         if name == 'first' and len(arguments) == 0:

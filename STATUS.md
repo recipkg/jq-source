@@ -314,3 +314,10 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented all four through available C symbols using `ctypes`. The filters remain registered when a symbol is unavailable and return an explicit build-time-availability error.
 - All 4 new black-box methods passed: finite outputs, zero and negative-domain behavior, non-number failures, and 100 fixed-seed differential samples per function. The full math-focused `test_jq_math*.py` suite passed all 14 tests in 22.981 seconds. Reference `/usr/bin/jq` reports 1.8.2; binary build provenance is unverified.
 - The full `test_jq_*.py` regression passed all 127 tests in 110.443 seconds through `jq-workspace` commit `3e5928f`, pinned to source commit `898cbecc` (documentation-only source pin `1cd1cca`) and recipe `0.1.50` at `d0cd418`. Reference `/usr/bin/jq` reports 1.8.2; its build provenance is unverified. Recipkg pack/check, English and Simplified Chinese build/discover, recursive dependency context in both build prompts, and byte-identical repeated packs also passed. Other platforms, C-library symbol differences, extreme precision and complete jq compatibility remain unverified.
+
+
+## Regex test iteration: 2026-10-30
+
+- Implemented `test(regex)` and `test(regex; flags)` with Oniguruma Perl NG through `ctypes`; added string/array argument forms, flag handling, generator order, and explicit type/pattern/modifier errors.
+- Five new black-box methods passed against local `/usr/bin/jq` reporting 1.8.2, including 100 fixed-seed differential cases. The full regression and pinned workspace checks are pending.
+- Current runtime requires a compatible host `libonig`. Other platforms and library versions remain unverified. `match`, `capture`, `scan`, regex splitting, substitutions, exact diagnostics and full jq compatibility remain incomplete.

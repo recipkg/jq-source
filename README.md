@@ -19,8 +19,11 @@ unsupported; the finite acceptance results and remaining boundaries are in
 
 The current string slice supports selected prefix/suffix tests and trimming,
 ASCII-only case conversion, literal splitting, and joining arrays or objects.
-It does not implement regex-based splitting, Unicode case conversion, general
-string interpolation, or nested array/object values in `join`.
+The `test(regex)` and `test(regex; flags)` filters use the host Oniguruma
+library with Perl NG syntax; only finite cases are covered. Regex splitting,
+matching metadata, capture/scan and replacement filters remain unsupported.
+Unicode case conversion, general string interpolation, and nested array/object
+values in `join` are also outside the current slice.
 
 Selected `type`, `tostring`, `tojson`, and single-value `fromjson` behavior is
 also implemented. Full number formatting and jq's complete JSON parsing
