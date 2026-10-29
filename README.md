@@ -86,3 +86,8 @@ Selected `delpaths(PATHS)` behavior removes multiple object keys and array
 elements in one operation, using original array indices. Duplicate, nested,
 missing, out-of-range, negative, and fractional-index cases are recorded in
 `STATUS.md`; this remains a finite tested slice.
+
+Selected SQL-style `INDEX`, `JOIN`, and uppercase `IN` behavior covers indexed
+streams, the documented two/three/four-argument join forms, and one/two-stream
+membership checks. Exact evaluation order and broader stream/error semantics
+remain limited; see `STATUS.md`.

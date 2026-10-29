@@ -214,3 +214,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected `delpaths(PATHS)` behavior for simultaneous object-key and array-element deletion. Array indices refer to the original input, so deletion order does not shift later paths. Samples include nested and overlapping paths, duplicates, missing keys, out-of-range indices, negative and fractional indices, null roots, empty paths deleting the root to null, and invalid path/container combinations.
 - All 4 delpaths test methods passed, including deterministic comparisons over 100 seeded nested values. The 19-method main jq contract suite passed; all 80 targeted `test_jq_*.py` methods passed before the fractional-index sample was added, and the updated delpaths file passed again against both candidate and local reference.
 - Exact diagnostics/error timing, extreme indices and resource limits, broader multi-result semantics, platforms, and full jq compatibility remain incomplete or unverified.
+
+
+## SQL-style stream operators iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.38 with its pinned recursive `software-quality` dependency. Black-box cases are in `recipkg/standard-library-verification` commit `d1cd01e`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented selected uppercase `INDEX(stream; index_expression)`, `JOIN` with two, three, and four arguments, and uppercase `IN` with one or two streams. `INDEX` handles multiple keys per row and last-write wins on duplicate keys; observed keys include null, boolean, numeric, array, and object values. `JOIN` emits row/index pairs or applies a join filter, and missing keys yield null. The two-argument form collects pairs into an array. `IN` checks the input against a stream or intersects two streams.
+- All 5 SQL-operator test methods passed, including 100 deterministic indexed-join comparisons. The complete targeted `test_jq_*.py` suite passed all 85 methods; after extending typed-key cases, the SQL-operator file passed all 5 methods again.
+- Full jq stream evaluation order, exact diagnostics/error timing, large-stream resource behavior, other platforms, and complete jq compatibility remain incomplete or unverified.

@@ -851,6 +851,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('keys', 0), ('keys_unsorted', 0), ('has', 1), ('in', 1),
                     ('sort_by', 1), ('group_by', 1), ('unique', 0), ('unique_by', 1),
                     ('min', 0), ('max', 0), ('min_by', 1), ('max_by', 1),
+                    ('INDEX', 2), ('JOIN', 2), ('JOIN', 3), ('JOIN', 4),
+                    ('IN', 1), ('IN', 2),
                     ('add', 0), ('add', 1), ('ascii_downcase', 0), ('ascii_upcase', 0),
                     ('startswith', 1), ('endswith', 1), ('ltrimstr', 1), ('rtrimstr', 1),
                     ('trimstr', 1), ('split', 1), ('join', 1), ('type', 0),
@@ -969,6 +971,10 @@ def has_key(container, key):
         index = as_index(key)
         return index is not None and 0 <= index < len(container)
     raise RuntimeErrorJq('cannot check membership for these values')
+
+
+def object_key(value):
+    return value if isinstance(value, str) else dump_json(value, compact=True)
 
 
 def to_entries_value(value):
@@ -1311,6 +1317,48 @@ def values(node, value, variables):
         if name == 'delpaths' and len(arguments) == 1:
             for path_values in values(arguments[0], value, variables):
                 yield delete_paths(value, path_values)
+            return
+        if name == 'INDEX' and len(arguments) == 2:
+            result = {}
+            for item in values(arguments[0], value, variables):
+                for key in values(arguments[1], item, variables):
+                    result[object_key(key)] = copy.deepcopy(item)
+            yield result
+            return
+        if name == 'JOIN' and len(arguments) in (2, 3, 4):
+            if len(arguments) == 2:
+                index_expression, index_filter = arguments
+                for index in values(index_expression, value, variables):
+                    if not isinstance(index, dict):
+                        raise RuntimeErrorJq('JOIN index must be an object')
+                    pairs = []
+                    for item in values(('iterate', ('identity',)), value, variables):
+                        for key in values(index_filter, item, variables):
+                            pairs.append([item, index.get(object_key(key))])
+                    yield pairs
+                return
+            index_expression, stream, index_filter = arguments[:3]
+            join_filter = arguments[3] if len(arguments) == 4 else ('identity',)
+            for index in values(index_expression, value, variables):
+                if not isinstance(index, dict):
+                    raise RuntimeErrorJq('JOIN index must be an object')
+                for item in values(stream, value, variables):
+                    for key in values(index_filter, item, variables):
+                        pair = [item, index.get(object_key(key))]
+                        yield from values(join_filter, pair, variables)
+            return
+        if name == 'IN' and len(arguments) in (1, 2):
+            if len(arguments) == 1:
+                found = any(compare_values(value, candidate) == 0
+                            for candidate in values(arguments[0], value, variables))
+            else:
+                found = False
+                for candidate in values(arguments[0], value, variables):
+                    if any(compare_values(candidate, other) == 0
+                           for other in values(arguments[1], value, variables)):
+                        found = True
+                        break
+            yield found
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')
