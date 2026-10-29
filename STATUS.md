@@ -282,3 +282,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected conditional iteration: `while` emits the current value while its condition is truthy and recursively evaluates each update result; `until` emits the current value when its condition is truthy and otherwise follows each next result. Multiple condition/update results retain the observed branch ordering.
 - All 3 new black-box methods passed, including condition/update branch samples and 100 fixed-seed positive-step comparisons against local `/usr/bin/jq` reporting 1.8.2. The complete targeted `test_jq_*.py` suite passed all 110 tests in 68.008 seconds with this reconstruction as candidate. Reference build provenance is unverified.
 - Infinite loops, tail-call optimization, recursion and memory bounds, extreme depths, exact errors/timing, other platforms and complete jq compatibility remain unverified.
+
+## Numeric rounding iteration: 2026-10-30
+
+- Input: the `jq` recipe draft v0.1.47, fixed to upstream jq 1.8.2. The versioned manual lists `ceil`, `floor`, `round`, and `trunc` among one-input C math functions.
+- Implemented finite number inputs for all four filters with decimal rounding modes. Observed `round` half values move away from zero; `ceil` and `trunc` preserve negative zero in the recorded samples. Non-number inputs fail with a `number required` diagnostic.
+- All 3 new black-box methods passed: finite positive/negative and halfway samples, negative-zero output, type errors, and 100 fixed-seed finite decimal values per filter compared with local `/usr/bin/jq` reporting 1.8.2.
+- The complete targeted `test_jq_*.py` regression passed: 113 tests in 74.990 seconds. The reference binary's exact build provenance remains unverified.
+- Non-finite values, extreme precision, platform math-library variation, exact diagnostics and complete jq compatibility remain unverified.

@@ -4,7 +4,9 @@ This is deliberately incomplete. Reject unsupported operations explicitly.
 """
 import codecs
 import copy
-from decimal import Context, Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
+from decimal import (Context, Decimal, InvalidOperation, ROUND_CEILING,
+                     ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_EVEN, ROUND_HALF_UP,
+                     localcontext)
 import functools
 import json
 import math
@@ -847,6 +849,7 @@ def pattern_names(pattern):
 
 _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('tonumber', 0), ('inputs', 0), ('input', 0), ('error', 1),
+                    ('ceil', 0), ('floor', 0), ('round', 0), ('trunc', 0),
                     ('sort', 0), ('have_decnum', 0), ('map', 1), ('map_values', 1),
                     ('keys', 0), ('keys_unsorted', 0), ('has', 1), ('in', 1),
                     ('sort_by', 1), ('group_by', 1), ('unique', 0), ('unique_by', 1),
@@ -1512,6 +1515,24 @@ def values(node, value, variables):
                     yield None
                 else:
                     yield matches[0] if name == 'index' else matches[-1]
+        elif name in ('ceil', 'floor', 'round', 'trunc') and argument is None:
+            if not is_number(value):
+                raise RuntimeErrorJq('number required')
+            if isinstance(value, JqNumber):
+                number = value.decimal
+            elif type(value) is int:
+                number = Decimal(value)
+            else:
+                number = Decimal(str(value))
+            if not number.is_finite():
+                raise RuntimeErrorJq('rounding non-finite numbers is not supported')
+            rounding = {
+                'ceil': ROUND_CEILING,
+                'floor': ROUND_FLOOR,
+                'round': ROUND_HALF_UP,
+                'trunc': ROUND_DOWN,
+            }[name]
+            yield JqNumber.from_decimal(number.to_integral_value(rounding=rounding))
         elif name == 'have_decnum' and argument is None:
             yield True
         elif name == 'length' and argument is None:

@@ -114,3 +114,8 @@ listed in `STATUS.md`.
 Selected `pick(path_expressions)` behavior builds a sparse object/array from
 the selected paths, filling missing values and array gaps with null. Its
 supported path forms and remaining boundaries are listed in `STATUS.md`.
+
+Selected `ceil`, `floor`, `round`, and `trunc` behavior covers finite numeric
+inputs, negative values, halfway cases, and negative zero. Non-finite numbers,
+extreme precision, platform math-library differences, and full jq compatibility
+remain outside the verified scope; see `STATUS.md`.
