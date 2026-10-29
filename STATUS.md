@@ -274,3 +274,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected `limit` and `skip` generator behavior: ordered stream truncation/skipping, zero and empty count streams, observed fractional counts, multiple count outputs, and bounded consumption of an infinite recursive stream. Negative and sampled non-number counts fail explicitly.
 - The new verification file `test_jq_limit_skip.py` passed all four methods, including 100 fixed-seed differential array/count cases against local `/usr/bin/jq` reporting jq 1.8.2. The full `test_jq_*.py` suite passed all 107 tests in 70.859 seconds with this reconstruction as candidate. Reference build provenance is unverified.
 - Large/extreme counts, detailed error timing and wording, complex multi-value stream interleavings, recursion/resource limits, other platforms and complete jq compatibility remain unverified.
+
+
+## Conditional generator loops: 2026-10-30
+
+- Input: the `jq` recipe draft v0.1.46, fixed to upstream jq 1.8.2. Source definitions are `while(cond; update)` and `until(cond; next)` in `src/builtin.jq` revision `34f7186b86743a083a589741b6cea95293524108`.
+- Implemented selected conditional iteration: `while` emits the current value while its condition is truthy and recursively evaluates each update result; `until` emits the current value when its condition is truthy and otherwise follows each next result. Multiple condition/update results retain the observed branch ordering.
+- All 3 new black-box methods passed, including condition/update branch samples and 100 fixed-seed positive-step comparisons against local `/usr/bin/jq` reporting 1.8.2. The complete targeted `test_jq_*.py` suite passed all 110 tests in 68.008 seconds with this reconstruction as candidate. Reference build provenance is unverified.
+- Infinite loops, tail-call optimization, recursion and memory bounds, extreme depths, exact errors/timing, other platforms and complete jq compatibility remain unverified.

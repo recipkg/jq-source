@@ -869,6 +869,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('transpose', 0), ('getpath', 1), ('setpath', 2), ('walk', 1),
                     ('recurse', 0), ('recurse', 1), ('recurse', 2),
                     ('limit', 2), ('skip', 2),
+                    ('while', 2), ('until', 2),
                     ('path', 1), ('paths', 0), ('paths', 1), ('pick', 1), ('del', 1),
                     ('delpaths', 1)}
 
@@ -1364,6 +1365,22 @@ def values(node, value, variables):
                             break
                         remaining -= 1
                     yield from stream
+            return
+        if name in ('while', 'until') and len(arguments) == 2:
+            condition, update = arguments
+
+            def iterate(current):
+                for selected in values(condition, current, variables):
+                    if truth(selected):
+                        yield current
+                        if name == 'while':
+                            for next_value in values(update, current, variables):
+                                yield from iterate(next_value)
+                    elif name == 'until':
+                        for next_value in values(update, current, variables):
+                            yield from iterate(next_value)
+
+            yield from iterate(value)
             return
         if name == 'getpath' and len(arguments) == 1:
             for path in values(arguments[0], value, variables):
