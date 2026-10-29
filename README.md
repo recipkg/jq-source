@@ -120,9 +120,10 @@ inputs, negative values, halfway cases, and negative zero. Non-finite numbers,
 extreme precision, platform math-library differences, and full jq compatibility
 remain outside the verified scope; see `STATUS.md`.
 
-Selected single-argument math behavior covers 32 additional filters, including
-trigonometric, exponential, logarithmic, gamma, and rounding-related functions.
-Together with the four rounding filters above, this is 36 of the 40 unary math
-filters documented by jq 1.8. The four Bessel functions and all multi-argument
-math filters remain unsupported; system math-library differences and full jq
-compatibility remain outside the verified scope. See `STATUS.md`.
+Selected single-argument math behavior covers 36 of jq 1.8's 40 documented
+filters; only the four Bessel functions remain unsupported. The C math filters
+with multiple explicit arguments, `frexp`/`modf` decomposition results, and
+`fma` are also covered in finite local differential samples. These use the
+host's C math library through Python's standard-library `ctypes`, so platform
+availability and full jq compatibility remain outside the verified scope. See
+`STATUS.md`.

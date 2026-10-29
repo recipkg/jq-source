@@ -297,4 +297,12 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented the 32 additional single-argument filters supported by the Python math library or equivalent scalar operations. Together with `ceil`, `floor`, `round`, and `trunc`, 36 of the documented 40 unary functions are covered; `j0`, `j1`, `y0`, and `y1` remain unsupported.
 - Four new black-box methods passed: finite samples, non-number errors for all 32 filters, domain/singularity/overflow/negative-zero outputs, and 100 fixed-seed differential inputs per filter. Gamma-family comparisons use a small tolerance for platform math-library rounding. The reference `/usr/bin/jq` reports 1.8.2; build provenance is unverified.
 - The complete `test_jq_*.py` suite passed all 117 tests in 86.261 seconds with this reconstruction as candidate.
-- Two/three-argument math filters, other platforms, extreme precision, exact diagnostics, and complete jq compatibility remain unverified.
+- C math functions with multiple inputs, other platforms, extreme precision, exact diagnostics, and complete jq compatibility remained unverified at this checkpoint.
+
+## Multi-argument math iteration: 2026-10-30
+
+- Input: jq recipe draft v0.1.49, fixed to upstream jq 1.8.2. The manual lists 19 two-input and one three-input C math functions; upstream `src/libm.h` also shows that `frexp` and `modf` return their C out-parameters as two-element arrays.
+- Implemented all 17 two-filter-argument functions observed in the host reference, `fma`, and the `frexp`/`modf` input decomposition filters. Integer C parameters for `jn`, `yn`, `ldexp`, and `scalbln` use C-style truncation. Multiple argument generators retain jq's observed rightmost-argument outer ordering.
+- Six new black-box methods passed: decomposition pairs, finite samples for all functions, domain/zero/signed-zero edges, non-number errors in each argument position, generator ordering, and 100 fixed-seed inputs per two/three-argument function. The reference `/usr/bin/jq` reports 1.8.2; build provenance is unverified.
+- The complete `test_jq_*.py` regression and packaged Recipkg archive checks are pending this iteration.
+- Other platforms, C-library symbol availability differences, extreme precision, exact diagnostics, and complete jq compatibility remain unverified.

@@ -4,6 +4,8 @@ This is deliberately incomplete. Reject unsupported operations explicitly.
 """
 import codecs
 import copy
+import ctypes
+import ctypes.util
 from decimal import (Context, Decimal, InvalidOperation, ROUND_CEILING,
                      ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_EVEN, ROUND_HALF_UP,
                      localcontext)
@@ -949,7 +951,79 @@ _MATH_FUNCTIONS = {
     'tanh': math.tanh,
     'tgamma': math.gamma,
 }
+_MATH_ARRAY_FUNCTIONS = {'frexp': math.frexp, 'modf': math.modf}
+_C_DOUBLE = ctypes.c_double
+_C_MATH_SIGNATURES = {
+    'atan2': (_C_DOUBLE, _C_DOUBLE),
+    'copysign': (_C_DOUBLE, _C_DOUBLE),
+    'drem': (_C_DOUBLE, _C_DOUBLE),
+    'fdim': (_C_DOUBLE, _C_DOUBLE),
+    'fmax': (_C_DOUBLE, _C_DOUBLE),
+    'fmin': (_C_DOUBLE, _C_DOUBLE),
+    'fmod': (_C_DOUBLE, _C_DOUBLE),
+    'hypot': (_C_DOUBLE, _C_DOUBLE),
+    'jn': (ctypes.c_int, _C_DOUBLE),
+    'ldexp': (_C_DOUBLE, ctypes.c_int),
+    'nextafter': (_C_DOUBLE, _C_DOUBLE),
+    'nexttoward': (_C_DOUBLE, ctypes.c_longdouble),
+    'pow': (_C_DOUBLE, _C_DOUBLE),
+    'remainder': (_C_DOUBLE, _C_DOUBLE),
+    'scalb': (_C_DOUBLE, _C_DOUBLE),
+    'scalbln': (_C_DOUBLE, ctypes.c_long),
+    'yn': (ctypes.c_int, _C_DOUBLE),
+    'fma': (_C_DOUBLE, _C_DOUBLE, _C_DOUBLE),
+}
+
+
+def load_c_math_functions():
+    library_names = [ctypes.util.find_library('m'), None]
+    libraries = []
+    for library_name in dict.fromkeys(library_names):
+        try:
+            libraries.append(ctypes.CDLL(library_name))
+        except OSError:
+            continue
+
+    functions = {}
+    for name, signature in _C_MATH_SIGNATURES.items():
+        for library in libraries:
+            try:
+                function = getattr(library, name)
+            except AttributeError:
+                continue
+            function.argtypes = signature
+            function.restype = _C_DOUBLE
+            functions[name] = function
+            break
+    return functions
+
+
+_C_MATH_FUNCTIONS = load_c_math_functions()
+
+
+def call_c_math(name, arguments):
+    function = _C_MATH_FUNCTIONS.get(name)
+    if function is None:
+        raise RuntimeErrorJq(
+            f'Error: {name}/{len(arguments)} not found at build time')
+    numbers = [as_float(argument) for argument in arguments]
+    converted = []
+    for c_type, number in zip(_C_MATH_SIGNATURES[name], numbers):
+        if c_type in (ctypes.c_int, ctypes.c_long):
+            try:
+                converted.append(c_type(int(number)))
+            except (OverflowError, ValueError) as exc:
+                raise RuntimeErrorJq('integer math argument out of range') from exc
+        else:
+            converted.append(number)
+    return function(*converted)
+
+
 _BUILTIN_ARITIES.update((name, 0) for name in _MATH_FUNCTIONS)
+_BUILTIN_ARITIES.update((name, 0) for name in _MATH_ARRAY_FUNCTIONS)
+_BUILTIN_ARITIES.update((name, len(signature))
+                        for name, signature in _C_MATH_SIGNATURES.items()
+                        if name not in {'jn', 'yn'} or name in _C_MATH_FUNCTIONS)
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -1612,6 +1686,24 @@ def values(node, value, variables):
             if not is_number(value):
                 raise RuntimeErrorJq('number required')
             yield unary_math(name, value)
+        elif name in _MATH_ARRAY_FUNCTIONS and argument is None:
+            if not is_number(value):
+                raise RuntimeErrorJq('number required')
+            yield list(_MATH_ARRAY_FUNCTIONS[name](as_float(value)))
+        elif name in _C_MATH_SIGNATURES and len(arguments) == len(_C_MATH_SIGNATURES[name]):
+            selected = [None] * len(arguments)
+
+            def apply_math_argument(index):
+                if index < 0:
+                    if any(not is_number(item) for item in selected):
+                        raise RuntimeErrorJq('number required')
+                    yield call_c_math(name, selected)
+                    return
+                for item in values(arguments[index], value, variables):
+                    selected[index] = item
+                    yield from apply_math_argument(index - 1)
+
+            yield from apply_math_argument(len(arguments) - 1)
         elif name == 'have_decnum' and argument is None:
             yield True
         elif name == 'length' and argument is None:
