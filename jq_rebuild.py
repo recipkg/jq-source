@@ -548,7 +548,8 @@ def pattern_names(pattern):
 
 _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('tonumber', 0), ('inputs', 0), ('input', 0), ('error', 1),
-                    ('sort', 0), ('have_decnum', 0)}
+                    ('sort', 0), ('have_decnum', 0), ('map', 1), ('map_values', 1),
+                    ('keys', 0), ('keys_unsorted', 0), ('has', 1), ('in', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -615,6 +616,17 @@ def validate_variables(node, names, functions=None, visiting=None):
                     visiting.remove(id(definition))
         elif key not in _BUILTIN_ARITIES:
             raise CompileError(f'{key[0]}/{key[1]} is not defined or supported')
+
+
+def has_key(container, key):
+    if container is None:
+        return False
+    if isinstance(container, dict) and isinstance(key, str):
+        return key in container
+    if isinstance(container, list) and is_number(key):
+        index = as_index(key)
+        return index is not None and 0 <= index < len(container)
+    raise RuntimeErrorJq('cannot check membership for these values')
 
 
 def values(node, value, variables):
@@ -816,6 +828,36 @@ def values(node, value, variables):
                 yield abs(value)
             else:
                 raise RuntimeErrorJq('length not defined for this value')
+        elif name in ('keys', 'keys_unsorted') and argument is None:
+            if isinstance(value, dict):
+                yield sorted(value) if name == 'keys' else list(value)
+            elif isinstance(value, list):
+                yield list(range(len(value)))
+            else:
+                raise RuntimeErrorJq('keys requires an array or object')
+        elif name in ('has', 'in') and argument is not None:
+            for item in values(argument, value, variables):
+                yield has_key(value, item) if name == 'has' else has_key(item, value)
+        elif name in ('map', 'map_values') and argument is not None:
+            if not isinstance(value, (list, dict)):
+                raise RuntimeErrorJq('cannot iterate over this value')
+            items = value.items() if isinstance(value, dict) else enumerate(value)
+            if name == 'map':
+                yield [result for _, item in items for result in values(argument, item, variables)]
+            elif isinstance(value, dict):
+                result = {}
+                for key, item in items:
+                    first = next(values(argument, item, variables), _MISSING)
+                    if first is not _MISSING:
+                        result[key] = first
+                yield result
+            else:
+                result = []
+                for _, item in items:
+                    first = next(values(argument, item, variables), _MISSING)
+                    if first is not _MISSING:
+                        result.append(first)
+                yield result
         elif name == 'not' and argument is None:
             yield not truth(value)
         elif name == 'select' and argument is not None:
