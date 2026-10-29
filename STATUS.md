@@ -174,3 +174,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected `to_entries`, `from_entries`, and `with_entries` behavior. Objects retain their observed entry order; arrays become index/value entries. `from_entries` accepts the documented `key`/`Key`/`name`/`Name` and `value`/`Value` fields, missing values default to null, and repeated keys keep the last value. `with_entries` applies filters that update or discard entries.
 - All 4 entry-conversion test methods passed, including deterministic comparisons over 100 objects and 100 arrays. After this update, all 19 main jq contract methods and all 63 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
 - Non-object entry details, numeric keys passed to `from_entries`, exact diagnostics/error timing, broad multi-result semantics, resource limits, platforms and full jq compatibility remain incomplete or unverified.
+
+
+## Array transpose iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.33 with its pinned recursive `software-quality` dependency. Black-box cases are in `recipkg/standard-library-verification` commit `a89ce26`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented selected `transpose` behavior for arrays of rows. Rectangular matrices transpose normally; ragged and empty rows are padded with null, null rows act as empty rows, and zero-width input yields an empty array. Non-array top-level values and non-array non-null rows fail.
+- All 4 transpose test methods passed, including deterministic comparison over 100 generated matrices. After this update, all 19 main jq contract methods and all 67 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
+- Exact error text/timing, extreme dimensions and resource limits, other platforms, and full jq compatibility remain incomplete or unverified.

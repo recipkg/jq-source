@@ -61,3 +61,8 @@ Selected `to_entries`, `from_entries`, and `with_entries` behavior covers
 objects and arrays, documented entry-name aliases, key/value updates, and
 filtering entries. These conversions remain a finite tested slice; exact error
 messages and uncommon input combinations are not fully covered.
+
+
+Selected `transpose` behavior covers rectangular and ragged arrays, empty rows,
+and null rows; shorter rows are padded with null. Non-array rows fail in the
+observed samples. See `STATUS.md` for the finite comparison and boundaries.

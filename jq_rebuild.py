@@ -738,7 +738,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('isempty', 1), ('any', 0), ('any', 1), ('any', 2),
                     ('all', 0), ('all', 1), ('all', 2),
                     ('range', 1), ('range', 2), ('range', 3),
-                    ('to_entries', 0), ('from_entries', 0), ('with_entries', 1)}
+                    ('to_entries', 0), ('from_entries', 0), ('with_entries', 1),
+                    ('transpose', 0)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -878,6 +879,20 @@ def from_entries_value(value):
             item = entry.get('Value')
         result[key] = item
     return result
+
+
+def transpose_value(value):
+    if not isinstance(value, list):
+        raise RuntimeErrorJq('transpose requires an array')
+    width = 0
+    for row in value:
+        if row is None:
+            continue
+        if not isinstance(row, list):
+            raise RuntimeErrorJq('transpose rows must be arrays or null')
+        width = max(width, len(row))
+    return [[row[column] if isinstance(row, list) and column < len(row) else None
+             for row in value] for column in range(width)]
 
 
 def values(node, value, variables):
@@ -1128,6 +1143,9 @@ def values(node, value, variables):
             for entry in converted:
                 transformed.extend(values(arguments[0], entry, variables))
             yield from_entries_value(transformed)
+            return
+        if name == 'transpose' and argument is None:
+            yield transpose_value(value)
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')
