@@ -182,3 +182,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected `transpose` behavior for arrays of rows. Rectangular matrices transpose normally; ragged and empty rows are padded with null, null rows act as empty rows, and zero-width input yields an empty array. Non-array top-level values and non-array non-null rows fail.
 - All 4 transpose test methods passed, including deterministic comparison over 100 generated matrices. After this update, all 19 main jq contract methods and all 67 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
 - Exact error text/timing, extreme dimensions and resource limits, other platforms, and full jq compatibility remain incomplete or unverified.
+
+
+## Path lookup iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.34 with its pinned recursive `software-quality` dependency. Black-box samples are in `recipkg/standard-library-verification` commit `4af5dddef15951876fc71d92d17cd985d30ccad5`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented selected `getpath` behavior for path arrays: nested object keys and array indices, negative indices, observed fractional-index truncation, missing keys/out-of-range indices, and null interruption. Invalid path values and incompatible path components fail explicitly.
+- All 3 getpath test methods passed, including deterministic comparisons over 100 generated nested paths. After this update, all 19 main jq contract methods and all 70 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
+- Exact errors/timing, generator paths beyond these samples, unusual number indices, resources, platforms and full jq compatibility remain incomplete or unverified.

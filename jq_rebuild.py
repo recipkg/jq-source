@@ -662,6 +662,28 @@ def read_path(root, path):
     return root
 
 
+def get_path(root, path):
+    if not isinstance(path, list):
+        raise RuntimeErrorJq('path must be specified as an array')
+    for key in path:
+        if root is None:
+            return None
+        if isinstance(root, dict) and isinstance(key, str):
+            root = root.get(key)
+        elif isinstance(root, list) and is_number(key):
+            index = as_index(key)
+            if index is None:
+                raise RuntimeErrorJq('invalid array path index')
+            if index < 0:
+                index += len(root)
+            if not 0 <= index < len(root):
+                return None
+            root = root[index]
+        else:
+            raise RuntimeErrorJq('invalid path component for this value')
+    return root
+
+
 def write_path(root, path, value, delete=False):
     if not path:
         return None if delete else value
@@ -739,7 +761,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('all', 0), ('all', 1), ('all', 2),
                     ('range', 1), ('range', 2), ('range', 3),
                     ('to_entries', 0), ('from_entries', 0), ('with_entries', 1),
-                    ('transpose', 0)}
+                    ('transpose', 0), ('getpath', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -1146,6 +1168,10 @@ def values(node, value, variables):
             return
         if name == 'transpose' and argument is None:
             yield transpose_value(value)
+            return
+        if name == 'getpath' and len(arguments) == 1:
+            for path in values(arguments[0], value, variables):
+                yield get_path(value, path)
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')
