@@ -575,6 +575,27 @@ def jq_type_name(value):
     raise RuntimeErrorJq('unsupported value type')
 
 
+_TYPE_FILTER_TYPES = {
+    'arrays': 'array',
+    'objects': 'object',
+    'booleans': 'boolean',
+    'numbers': 'number',
+    'strings': 'string',
+    'nulls': 'null',
+}
+
+
+def type_filter_matches(name, value):
+    value_type = jq_type_name(value)
+    if name == 'iterables':
+        return value_type in ('array', 'object')
+    if name == 'scalars':
+        return value_type not in ('array', 'object')
+    if name == 'values':
+        return value_type != 'null'
+    return value_type == _TYPE_FILTER_TYPES[name]
+
+
 def contains_value(container, needle, strict_types=False):
     container_type, needle_type = jq_type_name(container), jq_type_name(needle)
     if container_type != needle_type:
@@ -974,6 +995,9 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('startswith', 1), ('endswith', 1), ('ltrimstr', 1), ('rtrimstr', 1),
                     ('trimstr', 1), ('split', 1), ('split', 2),
                     ('splits', 1), ('splits', 2), ('join', 1), ('type', 0),
+                    ('arrays', 0), ('objects', 0), ('iterables', 0),
+                    ('booleans', 0), ('numbers', 0), ('strings', 0),
+                    ('nulls', 0), ('values', 0), ('scalars', 0),
                     ('tostring', 0), ('tojson', 0), ('fromjson', 0),
                     ('reverse', 0), ('contains', 1), ('inside', 1),
                     ('indices', 1), ('index', 1), ('rindex', 1),
@@ -2120,6 +2144,10 @@ def values(node, value, variables):
             raise RuntimeErrorJq('modulemeta is not supported yet')
         if name == 'type' and argument is None:
             yield jq_type_name(value)
+        elif (name in _TYPE_FILTER_TYPES or
+              name in {'iterables', 'scalars', 'values'}) and not arguments:
+            if type_filter_matches(name, value):
+                yield value
         elif name == 'tostring' and argument is None:
             yield value if isinstance(value, str) else dump_json(value, compact=True)
         elif name == 'tojson' and argument is None:
