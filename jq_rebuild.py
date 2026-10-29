@@ -684,6 +684,43 @@ def get_path(root, path):
     return root
 
 
+def set_path(root, path, replacement):
+    if not isinstance(path, list):
+        raise RuntimeErrorJq('path must be specified as an array')
+    def update(container, components):
+        if not components:
+            return copy.deepcopy(replacement)
+        key, remaining = components[0], components[1:]
+        if isinstance(key, str):
+            if container is None:
+                container = {}
+            if not isinstance(container, dict):
+                raise RuntimeErrorJq('cannot index this value with a string')
+            result = copy.deepcopy(container)
+            result[key] = update(container.get(key), remaining)
+            return result
+        if is_number(key):
+            index = as_index(key)
+            if index is None:
+                raise RuntimeErrorJq('invalid array path index')
+            if container is None:
+                container = []
+            if not isinstance(container, list):
+                raise RuntimeErrorJq('cannot index this value with a number')
+            if index < 0:
+                index += len(container)
+                if index < 0:
+                    raise RuntimeErrorJq('out of bounds negative array index')
+            result = copy.deepcopy(container)
+            if index >= len(result):
+                result.extend([None] * (index + 1 - len(result)))
+            result[index] = update(container[index] if index < len(container) else None,
+                                   remaining)
+            return result
+        raise RuntimeErrorJq('invalid path component')
+    return update(root, path)
+
+
 def write_path(root, path, value, delete=False):
     if not path:
         return None if delete else value
@@ -761,7 +798,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('all', 0), ('all', 1), ('all', 2),
                     ('range', 1), ('range', 2), ('range', 3),
                     ('to_entries', 0), ('from_entries', 0), ('with_entries', 1),
-                    ('transpose', 0), ('getpath', 1)}
+                    ('transpose', 0), ('getpath', 1), ('setpath', 2)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -1172,6 +1209,11 @@ def values(node, value, variables):
         if name == 'getpath' and len(arguments) == 1:
             for path in values(arguments[0], value, variables):
                 yield get_path(value, path)
+            return
+        if name == 'setpath' and len(arguments) == 2:
+            for path in values(arguments[0], value, variables):
+                for replacement in values(arguments[1], value, variables):
+                    yield set_path(value, path, replacement)
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')

@@ -71,3 +71,8 @@ observed samples. See `STATUS.md` for the finite comparison and boundaries.
 Selected `getpath` behavior covers nested object and array paths, missing values,
 negative and fractional indices, and null interruption. Invalid path/component
 types fail in the tested cases; see `STATUS.md` for boundaries.
+
+
+Selected `setpath` behavior covers nested creation, array extension with null,
+negative indices, and root replacement. Path and container errors are only
+checked in the finite cases listed in `STATUS.md`.

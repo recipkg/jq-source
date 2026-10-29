@@ -190,3 +190,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected `getpath` behavior for path arrays: nested object keys and array indices, negative indices, observed fractional-index truncation, missing keys/out-of-range indices, and null interruption. Invalid path values and incompatible path components fail explicitly.
 - All 3 getpath test methods passed, including deterministic comparisons over 100 generated nested paths. After this update, all 19 main jq contract methods and all 70 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
 - Exact errors/timing, generator paths beyond these samples, unusual number indices, resources, platforms and full jq compatibility remain incomplete or unverified.
+
+
+## Path update iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.35 with its pinned recursive `software-quality` dependency. Black-box samples are in `recipkg/standard-library-verification` commit `eb60085`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented selected `setpath` behavior: paths build nested objects/arrays from null, positive array indices extend with null padding, negative indices address existing elements, empty paths replace the root, and invalid paths/container combinations fail.
+- All 3 setpath test methods passed, including deterministic comparisons over 100 generated nested update cases. After this update, all 19 main jq contract methods and all 73 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
+- Multi-output path/value ordering, extreme positive indices and allocation limits, exact diagnostics, broader path semantics, platforms and full jq compatibility remain incomplete or unverified.
