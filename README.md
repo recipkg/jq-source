@@ -49,3 +49,9 @@ indexing and generator selection; see `STATUS.md` for the exact sample boundary.
 Selected `any` and `all` behavior covers direct iterable inputs, per-item
 conditions, and explicit generator/condition pairs, with early termination on a
 decisive result.
+
+
+Selected `range` behavior covers the one-, two-, and three-argument forms,
+ascending and descending integer/fractional sequences, and an empty result for a
+zero step. This is a finite tested slice; argument streams and extreme numeric
+precision remain limited as recorded in `STATUS.md`.

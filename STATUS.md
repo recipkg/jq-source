@@ -158,3 +158,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented `any` and `all` over iterable values, one condition applied to each value, and explicit generator/condition pairs. Empty inputs use the observed false/true identities, object inputs iterate their values, and decisive outputs stop further evaluation.
 - All 4 predicate test methods passed, including deterministic comparisons over 100 arrays and six filter forms. After this change, the 19-method main jq contract suite and all 56 targeted `test_jq_*.py` methods passed; configured differential cases used local jq 1.8.2.
 - Full condition-stream truthiness interactions, exact error and short-circuit diagnostics, resource limits, platform behavior and full jq compatibility remain incomplete or unverified.
+
+
+## Range generator iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.31 with its pinned recursive `software-quality` dependency. Black-box cases are in `recipkg/standard-library-verification` commit `2b84e93df81359eb7a2dceda934cb57f018eee16`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented selected one-, two-, and three-argument `range` forms using decimal arithmetic. Samples cover ascending and descending ranges, fractional bounds, positive and negative steps, zero-step/empty ranges, and invalid argument types. The implementation explicitly caps decimal precision at 10,000 digits and rejects a step that cannot advance the current value.
+- All 3 range test methods passed, including 100 deterministic integer range comparisons. After this update, all 19 main jq contract methods and all 59 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
+- Argument filters that emit multiple values, very large or extreme exponents, exact error timing/diagnostics, resource limits, platforms and full jq compatibility remain incomplete or unverified.

@@ -4,7 +4,7 @@ This is deliberately incomplete. Reject unsupported operations explicitly.
 """
 import codecs
 import copy
-from decimal import Context, Decimal, InvalidOperation, ROUND_HALF_EVEN
+from decimal import Context, Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
 import functools
 import json
 import math
@@ -563,6 +563,59 @@ def implode_value(value):
     return ''.join(result)
 
 
+def decimal_number(value):
+    if isinstance(value, JqNumber):
+        number = value.decimal
+    elif type(value) is int:
+        number = Decimal(value)
+    elif type(value) is float and math.isfinite(value):
+        number = Decimal(str(value))
+    else:
+        raise RuntimeErrorJq('range arguments must be finite numbers')
+    if not number.is_finite():
+        raise RuntimeErrorJq('range arguments must be finite numbers')
+    return number
+
+
+def range_sequence(parameters):
+    start, stop, step = map(decimal_number, parameters)
+    if step == 0:
+        return
+    lowest_exponent = min(number.as_tuple().exponent for number in (start, stop, step))
+    highest_magnitude = max((number.adjusted() for number in (start, stop, step)
+                             if number), default=0)
+    precision = max(50, highest_magnitude - lowest_exponent + 8)
+    if precision > 10000:
+        raise RuntimeErrorJq('range precision exceeds the supported limit')
+    with localcontext() as context:
+        context.prec = precision
+        current = start
+        while (step > 0 and current < stop) or (step < 0 and current > stop):
+            yield JqNumber.from_decimal(current)
+            next_value = current + step
+            if next_value == current:
+                raise RuntimeErrorJq('range step is too small to advance')
+            current = next_value
+
+
+def range_values(arguments, input_value, variables):
+    if len(arguments) == 1:
+        nodes = [('literal', 0), arguments[0], ('literal', 1)]
+    elif len(arguments) == 2:
+        nodes = [arguments[0], arguments[1], ('literal', 1)]
+    else:
+        nodes = arguments
+
+    def combinations(position, selected):
+        if position == len(nodes):
+            yield from range_sequence(selected)
+            return
+        for item in values(nodes[position], input_value, variables):
+            yield from combinations(position + 1, selected + [item])
+
+    yield from combinations(0, [])
+
+
 def paths(node, root, variables):
     kind = node[0]
     if kind == 'identity':
@@ -683,7 +736,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('explode', 0), ('implode', 0), ('first', 0), ('first', 1),
                     ('last', 0), ('last', 1), ('nth', 1), ('nth', 2),
                     ('isempty', 1), ('any', 0), ('any', 1), ('any', 2),
-                    ('all', 0), ('all', 1), ('all', 2)}
+                    ('all', 0), ('all', 1), ('all', 2),
+                    ('range', 1), ('range', 2), ('range', 3)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -1021,6 +1075,9 @@ def values(node, value, variables):
                         yield False
                         return
             yield result
+            return
+        if name == 'range' and len(arguments) in (1, 2, 3):
+            yield from range_values(arguments, value, variables)
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')
