@@ -915,7 +915,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('limit', 2), ('skip', 2),
                     ('while', 2), ('until', 2),
                     ('path', 1), ('paths', 0), ('paths', 1), ('pick', 1), ('del', 1),
-                    ('delpaths', 1), ('test', 1), ('test', 2), ('match', 1), ('match', 2)}
+                    ('delpaths', 1), ('test', 1), ('test', 2), ('match', 1), ('match', 2),
+                    ('capture', 1), ('capture', 2), ('scan', 1), ('scan', 2)}
 
 _MATH_FUNCTIONS = {
     'acos': math.acos,
@@ -1287,6 +1288,32 @@ def oniguruma_match(input_value, pattern, flags):
     return results
 
 
+def oniguruma_capture(input_value, pattern, flags):
+    for match in oniguruma_match(input_value, pattern, flags):
+        captured = {}
+        for group in match['captures']:
+            if group['name'] is not None:
+                captured[group['name']] = group['string']
+        yield captured
+
+
+def oniguruma_scan(input_value, pattern, flags):
+    if flags is None:
+        global_flags = 'g'
+    elif isinstance(flags, str):
+        global_flags = 'g' + flags
+    else:
+        flag_description = (
+            f'{jq_type_name(flags)} ({dump_json(flags, compact=True)})')
+        raise RuntimeErrorJq(
+            f'string ("g") and {flag_description} cannot be added')
+    for match in oniguruma_match(input_value, pattern, global_flags):
+        if match['captures']:
+            yield [capture['string'] for capture in match['captures']]
+        else:
+            yield match['string']
+
+
 _BUILTIN_ARITIES.update((name, 0) for name in _MATH_FUNCTIONS)
 _BUILTIN_ARITIES.update((name, 0) for name in _MATH_ARRAY_FUNCTIONS)
 _BUILTIN_ARITIES.update((name, len(signature))
@@ -1656,6 +1683,25 @@ def values(node, value, variables):
             for flags in values(arguments[1], value, variables):
                 for pattern in values(arguments[0], value, variables):
                     yield from oniguruma_match(value, pattern, flags)
+            return
+        if name == 'capture' and len(arguments) == 1:
+            for candidate in values(arguments[0], value, variables):
+                pattern, flags = regex_argument(candidate)
+                yield from oniguruma_capture(value, pattern, flags)
+            return
+        if name == 'capture' and len(arguments) == 2:
+            for flags in values(arguments[1], value, variables):
+                for pattern in values(arguments[0], value, variables):
+                    yield from oniguruma_capture(value, pattern, flags)
+            return
+        if name == 'scan' and len(arguments) == 1:
+            for pattern in values(arguments[0], value, variables):
+                yield from oniguruma_scan(value, pattern, None)
+            return
+        if name == 'scan' and len(arguments) == 2:
+            for flags in values(arguments[1], value, variables):
+                for pattern in values(arguments[0], value, variables):
+                    yield from oniguruma_scan(value, pattern, flags)
             return
         if name == 'empty' and argument is None:
             return
