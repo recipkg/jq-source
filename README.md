@@ -33,3 +33,8 @@ small portion of jq's built-in filters.
 Selected `indices`, `index`, and `rindex` behavior is implemented for strings
 and arrays, including overlapping matches and Unicode codepoint offsets. The
 remaining receiver-type edge cases are only covered where `STATUS.md` says so.
+
+Selected `length` behavior covers strings, arrays, objects, null, and numbers;
+booleans fail. `flatten` supports arrays and object values with no depth or a
+non-negative integer depth. Fractional depths fail explicitly and are outside
+the current compatibility claim.

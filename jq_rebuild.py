@@ -514,6 +514,30 @@ def find_indices(value, needle):
     raise RuntimeErrorJq('index filters require a string or array')
 
 
+def flatten_value(value, depth=None):
+    if isinstance(value, list):
+        source = value
+    elif isinstance(value, dict):
+        source = list(value.values())
+    else:
+        raise RuntimeErrorJq('flatten requires an array or object')
+
+    result = []
+    stack = [(iter(source), depth)]
+    while stack:
+        iterator, remaining = stack[-1]
+        try:
+            item = next(iterator)
+        except StopIteration:
+            stack.pop()
+            continue
+        if isinstance(item, list) and (remaining is None or remaining > 0):
+            stack.append((iter(item), None if remaining is None else remaining - 1))
+        else:
+            result.append(item)
+    return result
+
+
 def paths(node, root, variables):
     kind = node[0]
     if kind == 'identity':
@@ -629,7 +653,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('trimstr', 1), ('split', 1), ('join', 1), ('type', 0),
                     ('tostring', 0), ('tojson', 0), ('fromjson', 0),
                     ('reverse', 0), ('contains', 1), ('inside', 1),
-                    ('indices', 1), ('index', 1), ('rindex', 1)}
+                    ('indices', 1), ('index', 1), ('rindex', 1),
+                    ('flatten', 0), ('flatten', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -929,6 +954,24 @@ def values(node, value, variables):
             if not isinstance(value, list):
                 raise RuntimeErrorJq('reverse requires an array')
             yield list(reversed(value))
+        elif name == 'flatten' and len(arguments) == 0:
+            yield flatten_value(value)
+        elif name == 'flatten' and len(arguments) == 1:
+            for depth in values(arguments[0], value, variables):
+                if not is_number(depth):
+                    raise RuntimeErrorJq('flatten depth must be a number')
+                if isinstance(depth, JqNumber):
+                    decimal_depth = depth.decimal
+                    if decimal_depth != decimal_depth.to_integral_value():
+                        raise RuntimeErrorJq('fractional flatten depth is not supported')
+                    depth = int(decimal_depth)
+                elif isinstance(depth, float):
+                    if not depth.is_integer():
+                        raise RuntimeErrorJq('fractional flatten depth is not supported')
+                    depth = int(depth)
+                if depth < 0:
+                    raise RuntimeErrorJq('flatten depth must not be negative')
+                yield flatten_value(value, depth)
         elif name in ('contains', 'inside') and argument is not None:
             for other in values(argument, value, variables):
                 yield (contains_value(value, other, strict_types=True) if name == 'contains'
