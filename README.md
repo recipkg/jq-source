@@ -86,6 +86,12 @@ bottom-up array sorting, nested scalar/object changes, and multiple filter
 results inside arrays; see `STATUS.md` for the finite boundary.
 
 
+Selected `recurse`, `recurse(f)`, and `recurse(f; condition)` behavior covers
+depth-first traversal, explicit child generators, and condition-based stopping.
+Unbounded output and recursion resource limits remain unverified; see
+`STATUS.md` for boundaries.
+
+
 Selected `path(expr)` and `paths` behavior covers exact field/index paths,
 recursive container traversal, and predicate-filtered paths. Missing fields in
 exact paths and array iteration are limited to the samples in `STATUS.md`.

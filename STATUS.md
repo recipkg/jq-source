@@ -259,3 +259,10 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented the documented bottom-up traversal: recurse through object values and array elements, reconstruct each container, then apply `f`; scalars receive `f` directly. Array child streams flatten according to the observed `map(w)` behavior.
 - Black-box cases are in `recipkg/standard-library-verification/tests/test_jq_walk.py`; all 4 walk tests passed, including 100 deterministic nested JSON comparisons. The full targeted `test_jq_*.py` suite passed all 99 methods against local `/usr/bin/jq` reporting 1.8.2; its exact build provenance is unverified.
 - Deep-recursion resources, full object multi-output semantics, exact errors, platform differences and complete jq compatibility remain unverified.
+
+
+## Recursive generator iteration: 2026-10-30
+
+- Implemented `recurse`, `recurse(f)`, and `recurse(f; condition)`: emit the current value first, then recursively follow generated children in depth-first order; the conditional form only enters matching children.
+- Black-box cases are in `recipkg/standard-library-verification/tests/test_jq_recurse.py`; all 4 recurse tests passed, including 100 deterministic JSON traversal comparisons. The full targeted `test_jq_*.py` suite passed all 103 methods against local `/usr/bin/jq` reporting 1.8.2; its exact build provenance is unverified.
+- Infinite generators, recursion depth/stack limits, exact errors, multiple condition results, platforms and complete jq compatibility remain unverified.

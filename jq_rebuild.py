@@ -867,6 +867,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('range', 1), ('range', 2), ('range', 3),
                     ('to_entries', 0), ('from_entries', 0), ('with_entries', 1),
                     ('transpose', 0), ('getpath', 1), ('setpath', 2), ('walk', 1),
+                    ('recurse', 0), ('recurse', 1), ('recurse', 2),
                     ('path', 1), ('paths', 0), ('paths', 1), ('pick', 1), ('del', 1),
                     ('delpaths', 1)}
 
@@ -1311,6 +1312,28 @@ def values(node, value, variables):
                 yield from values(expression, mapped, variables)
 
             yield from walk_value(value)
+            return
+        if name == 'recurse' and len(arguments) in (0, 1, 2):
+            step = arguments[0] if arguments else None
+            condition = arguments[1] if len(arguments) == 2 else None
+
+            def recurse_values(current):
+                yield current
+                if step is None:
+                    children = (current.values() if isinstance(current, dict)
+                                else current if isinstance(current, list) else ())
+                    for child in children:
+                        yield from recurse_values(child)
+                    return
+                for child in values(step, current, variables):
+                    if condition is None:
+                        yield from recurse_values(child)
+                    else:
+                        for selected in values(condition, child, variables):
+                            if truth(selected):
+                                yield from recurse_values(child)
+
+            yield from recurse_values(value)
             return
         if name == 'getpath' and len(arguments) == 1:
             for path in values(arguments[0], value, variables):
