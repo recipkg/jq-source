@@ -326,5 +326,5 @@ visible; passing a subset does not establish full reconstruction.
 ## Match metadata iteration: 2026-10-30
 
 - Implemented `match(regex)` and `match(regex; flags)` with first/global results, Unicode codepoint offsets, named and unnamed capture metadata, unmatched captures, array shorthand, and explicit argument errors. Global zero-width matching advances the search start by one byte, matching the observed jq 1.8.2 behavior even when this produces repeated Unicode codepoint offsets.
-- All five focused black-box methods passed, including 100 fixed-seed differential cases against local `/usr/bin/jq` reporting 1.8.2; exact build provenance is unverified. The complete workspace regression is pending.
+- All five focused black-box methods passed, including 100 fixed-seed differential cases. The full `test_jq_*.py` regression passed all 137 tests in 234.289 seconds through [`jq-workspace 0abca2d`](https://github.com/recipkg/jq-workspace/tree/0abca2d50a2bd46c4d4f88f9e22fa26d7801facb), pinned to source `22a667e` and recipe `5d9cbd4`. The local `/usr/bin/jq` reference reports 1.8.2; its exact build provenance is unverified.
 - The runtime still requires compatible host `libonig`; other platforms and library versions remain unverified. Standalone `capture`, `scan`, regex splitting, substitutions, and complete jq compatibility remain incomplete.
