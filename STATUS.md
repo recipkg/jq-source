@@ -230,3 +230,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected `del(path_expression)` behavior by resolving the supported path expression forms and applying all selected deletions together. Samples include object fields, comma/multi-index selectors, array and object iteration, negative/out-of-range indices, missing fields, overlapping parent/child paths, and root deletion to null.
 - All 4 del test methods passed, including 100 deterministic nested-value comparisons. The complete targeted `test_jq_*.py` regression suite passed all 89 methods against the candidate, with configured differential cases using local jq 1.8.2.
 - Arbitrary path syntax, exact errors/evaluation order, resource limits, other platforms, and full jq compatibility remain incomplete or unverified.
+
+
+## Path projection iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.40 with its pinned recursive `software-quality` dependency. Black-box cases are in `recipkg/standard-library-verification` commit `41af720`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented selected `pick(path_expressions)` behavior by copying selected values into a fresh sparse structure. Missing object fields become null, array gaps are padded with null, iteration selects all immediate members, duplicate/overlapping paths preserve the selected subtree, and an empty iterator produces null.
+- All 4 pick test methods passed, including 100 deterministic nested-value comparisons. The full targeted `test_jq_*.py` regression suite passed all 93 methods against the candidate, with configured differential cases using local jq 1.8.2.
+- Arbitrary jq path syntax, array negative/range selectors, exact errors/evaluation order, resource limits, other platforms, and full jq compatibility remain incomplete or unverified.

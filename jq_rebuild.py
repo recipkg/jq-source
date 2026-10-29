@@ -867,7 +867,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('range', 1), ('range', 2), ('range', 3),
                     ('to_entries', 0), ('from_entries', 0), ('with_entries', 1),
                     ('transpose', 0), ('getpath', 1), ('setpath', 2),
-                    ('path', 1), ('paths', 0), ('paths', 1), ('del', 1),
+                    ('path', 1), ('paths', 0), ('paths', 1), ('pick', 1), ('del', 1),
                     ('delpaths', 1)}
 
 
@@ -1314,6 +1314,14 @@ def values(node, value, variables):
                 item = read_path(value, path)
                 if any(truth(result) for result in values(arguments[0], item, variables)):
                     yield list(path)
+            return
+        if name == 'pick' and len(arguments) == 1:
+            result = None
+            for path in paths(arguments[0], value, variables):
+                selected_path = list(path)
+                result = set_path(result, selected_path,
+                                  get_path(value, selected_path))
+            yield result
             return
         if name == 'del' and len(arguments) == 1:
             path_values = [list(path) for path in paths(arguments[0], value, variables)]

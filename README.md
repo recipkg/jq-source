@@ -96,3 +96,7 @@ Selected `del(path_expression)` behavior removes exact, multi-value, and
 iterator-selected paths simultaneously. Object fields, array indices, missing
 paths, overlapping paths, and root deletion are only covered by finite samples
 listed in `STATUS.md`.
+
+Selected `pick(path_expressions)` behavior builds a sparse object/array from
+the selected paths, filling missing values and array gaps with null. Its
+supported path forms and remaining boundaries are listed in `STATUS.md`.
