@@ -549,7 +549,10 @@ def pattern_names(pattern):
 _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('tonumber', 0), ('inputs', 0), ('input', 0), ('error', 1),
                     ('sort', 0), ('have_decnum', 0), ('map', 1), ('map_values', 1),
-                    ('keys', 0), ('keys_unsorted', 0), ('has', 1), ('in', 1)}
+                    ('keys', 0), ('keys_unsorted', 0), ('has', 1), ('in', 1),
+                    ('sort_by', 1), ('group_by', 1), ('unique', 0), ('unique_by', 1),
+                    ('min', 0), ('max', 0), ('min_by', 1), ('max_by', 1),
+                    ('add', 0), ('add', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -616,6 +619,20 @@ def validate_variables(node, names, functions=None, visiting=None):
                     visiting.remove(id(definition))
         elif key not in _BUILTIN_ARITIES:
             raise CompileError(f'{key[0]}/{key[1]} is not defined or supported')
+
+
+def add_values(left, right):
+    if left is None:
+        return right
+    if right is None:
+        return left
+    if isinstance(left, dict) and isinstance(right, dict):
+        return {**left, **right}
+    if is_number(left) and is_number(right):
+        return as_float(left) + as_float(right)
+    if type(left) is type(right) and isinstance(left, (str, list)):
+        return left + right
+    raise RuntimeErrorJq('incompatible operands for addition')
 
 
 def has_key(container, key):
@@ -761,18 +778,7 @@ def values(node, value, variables):
         for right_value in values(right, value, variables):
             for left_value in values(left, value, variables):
                 if op == '+':
-                    if left_value is None:
-                        yield right_value
-                    elif right_value is None:
-                        yield left_value
-                    elif isinstance(left_value, dict) and isinstance(right_value, dict):
-                        yield {**left_value, **right_value}
-                    elif is_number(left_value) and is_number(right_value):
-                        yield as_float(left_value) + as_float(right_value)
-                    elif type(left_value) is type(right_value) and isinstance(left_value, (str, list)):
-                        yield left_value + right_value
-                    else:
-                        raise RuntimeErrorJq('incompatible operands for addition')
+                    yield add_values(left_value, right_value)
                 elif op in ('-', '*'):
                     if not is_number(left_value) or not is_number(right_value):
                         raise RuntimeErrorJq('incompatible numeric operands')
@@ -887,10 +893,39 @@ def values(node, value, variables):
         elif name == 'error' and argument is not None:
             for message in values(argument, value, variables):
                 raise RuntimeErrorJq(str(message))
-        elif name == 'sort' and argument is None:
+        elif name == 'add':
+            source = values(argument, value, variables) if argument is not None else values(('iterate', ('identity',)), value, variables)
+            total = None
+            for item in source:
+                total = add_values(total, item)
+            yield total
+        elif name in ('sort', 'sort_by', 'group_by', 'unique', 'unique_by',
+                      'min', 'max', 'min_by', 'max_by'):
             if not isinstance(value, list):
-                raise RuntimeErrorJq('sort requires an array')
-            yield sorted(value, key=functools.cmp_to_key(compare_values))
+                raise RuntimeErrorJq('ordering requires an array')
+            if name in ('min', 'min_by', 'max', 'max_by'):
+                best_key, best_value = _MISSING, None
+                for item in value:
+                    key = [item] if argument is None else list(values(argument, item, variables))
+                    comparison = 0 if best_key is _MISSING else compare_values(key, best_key)
+                    if best_key is _MISSING or (comparison >= 0 if name.startswith('max') else comparison < 0):
+                        best_key, best_value = key, item
+                yield best_value
+                return
+            pairs = [([item] if argument is None else list(values(argument, item, variables)), item)
+                     for item in value]
+            pairs.sort(key=functools.cmp_to_key(lambda a, b: compare_values(a[0], b[0])))
+            if name in ('sort', 'sort_by'):
+                yield [item for _, item in pairs]
+            else:
+                groups = []
+                previous = _MISSING
+                for key, item in pairs:
+                    if previous is _MISSING or compare_values(previous, key) != 0:
+                        groups.append([])
+                        previous = key
+                    groups[-1].append(item)
+                yield groups if name == 'group_by' else [group[0] for group in groups]
         elif name != 'empty':
             raise CompileError('unknown or unsupported filter ' + name)
     else:
