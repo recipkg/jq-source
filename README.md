@@ -80,6 +80,12 @@ the original input independently. Path and container errors are only checked
 in the finite cases listed in `STATUS.md`.
 
 
+Selected `walk(f)` behavior recursively transforms array elements and object
+values before applying `f` to the containing value. The verified samples cover
+bottom-up array sorting, nested scalar/object changes, and multiple filter
+results inside arrays; see `STATUS.md` for the finite boundary.
+
+
 Selected `path(expr)` and `paths` behavior covers exact field/index paths,
 recursive container traversal, and predicate-filtered paths. Missing fields in
 exact paths and array iteration are limited to the samples in `STATUS.md`.

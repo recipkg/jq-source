@@ -866,7 +866,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('all', 0), ('all', 1), ('all', 2),
                     ('range', 1), ('range', 2), ('range', 3),
                     ('to_entries', 0), ('from_entries', 0), ('with_entries', 1),
-                    ('transpose', 0), ('getpath', 1), ('setpath', 2),
+                    ('transpose', 0), ('getpath', 1), ('setpath', 2), ('walk', 1),
                     ('path', 1), ('paths', 0), ('paths', 1), ('pick', 1), ('del', 1),
                     ('delpaths', 1)}
 
@@ -1292,6 +1292,25 @@ def values(node, value, variables):
             return
         if name == 'transpose' and argument is None:
             yield transpose_value(value)
+            return
+        if name == 'walk' and len(arguments) == 1:
+            expression = arguments[0]
+
+            def walk_value(current):
+                if isinstance(current, dict):
+                    mapped = {}
+                    for key, item in current.items():
+                        first = next(walk_value(item), _MISSING)
+                        if first is not _MISSING:
+                            mapped[key] = first
+                elif isinstance(current, list):
+                    mapped = [result for item in current
+                              for result in walk_value(item)]
+                else:
+                    mapped = current
+                yield from values(expression, mapped, variables)
+
+            yield from walk_value(value)
             return
         if name == 'getpath' and len(arguments) == 1:
             for path in values(arguments[0], value, variables):

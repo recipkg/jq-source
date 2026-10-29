@@ -252,3 +252,10 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected `pick(path_expressions)` behavior by copying selected values into a fresh sparse structure. Missing object fields become null, array gaps are padded with null, iteration selects all immediate members, duplicate/overlapping paths preserve the selected subtree, and an empty iterator produces null.
 - All 4 pick test methods passed, including 100 deterministic nested-value comparisons. The full targeted `test_jq_*.py` regression suite passed all 93 methods against the candidate, with configured differential cases using local jq 1.8.2.
 - Arbitrary jq path syntax, array negative/range selectors, exact errors/evaluation order, resource limits, other platforms, and full jq compatibility remain incomplete or unverified.
+
+
+## Recursive `walk(f)` iteration: 2026-10-30
+
+- Implemented the documented bottom-up traversal: recurse through object values and array elements, reconstruct each container, then apply `f`; scalars receive `f` directly. Array child streams flatten according to the observed `map(w)` behavior.
+- Black-box cases are in `recipkg/standard-library-verification/tests/test_jq_walk.py`; all 4 walk tests passed, including 100 deterministic nested JSON comparisons. The full targeted `test_jq_*.py` suite passed all 99 methods against local `/usr/bin/jq` reporting 1.8.2; its exact build provenance is unverified.
+- Deep-recursion resources, full object multi-output semantics, exact errors, platform differences and complete jq compatibility remain unverified.
