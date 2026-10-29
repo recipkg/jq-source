@@ -76,3 +76,8 @@ types fail in the tested cases; see `STATUS.md` for boundaries.
 Selected `setpath` behavior covers nested creation, array extension with null,
 negative indices, and root replacement. Path and container errors are only
 checked in the finite cases listed in `STATUS.md`.
+
+
+Selected `path(expr)` and `paths` behavior covers exact field/index paths,
+recursive container traversal, and predicate-filtered paths. Missing fields in
+exact paths and array iteration are limited to the samples in `STATUS.md`.

@@ -798,7 +798,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('all', 0), ('all', 1), ('all', 2),
                     ('range', 1), ('range', 2), ('range', 3),
                     ('to_entries', 0), ('from_entries', 0), ('with_entries', 1),
-                    ('transpose', 0), ('getpath', 1), ('setpath', 2)}
+                    ('transpose', 0), ('getpath', 1), ('setpath', 2),
+                    ('path', 1), ('paths', 0), ('paths', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -952,6 +953,19 @@ def transpose_value(value):
         width = max(width, len(row))
     return [[row[column] if isinstance(row, list) and column < len(row) else None
              for row in value] for column in range(width)]
+
+
+def value_paths(value, prefix=()):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            path = prefix + (key,)
+            yield path
+            yield from value_paths(child, path)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            path = prefix + (index,)
+            yield path
+            yield from value_paths(child, path)
 
 
 def values(node, value, variables):
@@ -1214,6 +1228,19 @@ def values(node, value, variables):
             for path in values(arguments[0], value, variables):
                 for replacement in values(arguments[1], value, variables):
                     yield set_path(value, path, replacement)
+            return
+        if name == 'path' and len(arguments) == 1:
+            for path in paths(arguments[0], value, variables):
+                yield list(path)
+            return
+        if name == 'paths' and len(arguments) == 0:
+            yield from (list(path) for path in value_paths(value))
+            return
+        if name == 'paths' and len(arguments) == 1:
+            for path in value_paths(value):
+                item = read_path(value, path)
+                if any(truth(result) for result in values(arguments[0], item, variables)):
+                    yield list(path)
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')
