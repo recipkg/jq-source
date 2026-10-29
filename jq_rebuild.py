@@ -680,7 +680,9 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('reverse', 0), ('contains', 1), ('inside', 1),
                     ('indices', 1), ('index', 1), ('rindex', 1),
                     ('flatten', 0), ('flatten', 1), ('utf8bytelength', 0),
-                    ('explode', 0), ('implode', 0)}
+                    ('explode', 0), ('implode', 0), ('first', 0), ('first', 1),
+                    ('last', 0), ('last', 1), ('nth', 1), ('nth', 2),
+                    ('isempty', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -960,6 +962,46 @@ def values(node, value, variables):
             return
         argument = arguments[0] if len(arguments) == 1 else None
         if name == 'empty' and argument is None:
+            return
+        if name == 'first' and len(arguments) == 0:
+            yield from values(('index', ('identity',), ('literal', 0)), value, variables)
+            return
+        if name == 'last' and len(arguments) == 0:
+            yield from values(('index', ('identity',), ('literal', -1)), value, variables)
+            return
+        if name == 'first' and len(arguments) == 1:
+            for item in values(arguments[0], value, variables):
+                yield item
+                return
+            return
+        if name == 'last' and len(arguments) == 1:
+            found = False
+            for item in values(arguments[0], value, variables):
+                selected = item
+                found = True
+            if found:
+                yield selected
+            return
+        if name == 'nth' and len(arguments) == 1:
+            yield from values(('index', ('identity',), arguments[0]), value, variables)
+            return
+        if name == 'nth' and len(arguments) == 2:
+            for raw_index in values(arguments[0], value, variables):
+                index = as_index(raw_index)
+                if index is None:
+                    raise RuntimeErrorJq('nth index must be numeric')
+                if index < 0:
+                    raise RuntimeErrorJq('nth does not support negative generator indices')
+                for position, item in enumerate(values(arguments[1], value, variables)):
+                    if position == index:
+                        yield item
+                        break
+            return
+        if name == 'isempty' and len(arguments) == 1:
+            for _ in values(arguments[0], value, variables):
+                yield False
+                return
+            yield True
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')

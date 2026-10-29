@@ -144,3 +144,10 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented `utf8bytelength` for strings, `explode` to Unicode codepoint numbers, and `implode` for arrays of numeric codepoints. The recorded samples include UTF-8 byte counts, combining marks, NUL, supplementary-plane characters, fractional numeric truncation, and replacement characters for out-of-range or surrogate codepoints.
 - All 4 Unicode test methods passed, including deterministic comparison over 100 Unicode strings and 100 codepoint arrays. After this change, all 19 main jq contract methods and all 48 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
 - Invalid Unicode in direct non-JSON strings, extreme numeric conversion and resource limits, exact diagnostics, platform behavior and full jq compatibility remain incomplete or unverified.
+
+## Generator selection iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.29 with its pinned recursive `software-quality` dependency. Black-box samples are in `recipkg/standard-library-verification` commit `68c8c08767e2aed6a7fbc8ab901524c34485c414`; the upstream comparison used local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented `first`, `last`, `nth`, and `isempty`. The no-generator forms use the observed array-index behavior; generator forms select from zero/many outputs, and `isempty` stops after the first generated value. Negative array indices follow array indexing, while negative generator indices fail.
+- All 4 generator test methods passed, including deterministic comparisons over 100 arrays and 11 selector expressions. After this update, the 19-method main jq contract suite and all 52 targeted `test_jq_*.py` methods passed; configured differential cases used local jq 1.8.2.
+- Exact diagnostics, complex multi-output index expressions, generator error timing beyond the observed early-stop case, resource limits, platforms and full jq compatibility remain incomplete or unverified.

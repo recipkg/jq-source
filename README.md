@@ -41,3 +41,7 @@ the current compatibility claim.
 
 Selected `utf8bytelength`, `explode`, and `implode` behavior is implemented;
 the finite Unicode and numeric boundary samples are listed in `STATUS.md`.
+
+Selected `first`, `last`, `nth`, and `isempty` behavior covers array indexing and
+finite output generators. The tested negative-index rules differ between array
+indexing and generator selection; see `STATUS.md` for the exact sample boundary.
