@@ -555,7 +555,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('min', 0), ('max', 0), ('min_by', 1), ('max_by', 1),
                     ('add', 0), ('add', 1), ('ascii_downcase', 0), ('ascii_upcase', 0),
                     ('startswith', 1), ('endswith', 1), ('ltrimstr', 1), ('rtrimstr', 1),
-                    ('trimstr', 1), ('split', 1), ('join', 1)}
+                    ('trimstr', 1), ('split', 1), ('join', 1), ('type', 0),
+                    ('tostring', 0), ('tojson', 0), ('fromjson', 0)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -838,7 +839,33 @@ def values(node, value, variables):
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')
-        if name == 'have_decnum' and argument is None:
+        if name == 'type' and argument is None:
+            if value is None:
+                yield 'null'
+            elif isinstance(value, bool):
+                yield 'boolean'
+            elif is_number(value):
+                yield 'number'
+            elif isinstance(value, str):
+                yield 'string'
+            elif isinstance(value, list):
+                yield 'array'
+            elif isinstance(value, dict):
+                yield 'object'
+            else:
+                raise RuntimeErrorJq('unsupported value type')
+        elif name == 'tostring' and argument is None:
+            yield value if isinstance(value, str) else dump_json(value, compact=True)
+        elif name == 'tojson' and argument is None:
+            yield dump_json(value, compact=True)
+        elif name == 'fromjson' and argument is None:
+            if not isinstance(value, str):
+                raise RuntimeErrorJq('fromjson requires a string')
+            parsed = list(parse_json_values([value]))
+            if len(parsed) != 1:
+                raise RuntimeErrorJq('fromjson requires exactly one JSON value')
+            yield parsed[0]
+        elif name == 'have_decnum' and argument is None:
             yield True
         elif name == 'length' and argument is None:
             if value is None:

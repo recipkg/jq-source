@@ -21,3 +21,7 @@ The current string slice supports selected prefix/suffix tests and trimming,
 ASCII-only case conversion, literal splitting, and joining arrays or objects.
 It does not implement regex-based splitting, Unicode case conversion, general
 string interpolation, or nested array/object values in `join`.
+
+Selected `type`, `tostring`, `tojson`, and single-value `fromjson` behavior is
+also implemented. Full number formatting and jq's complete JSON parsing
+semantics remain unverified.
