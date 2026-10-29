@@ -10,3 +10,9 @@ The target remains the full behavior of jq 1.8.2, including its libraries,
 streaming, errors, precision and platforms. The current recipe is incomplete,
 so missing specifications and failed or unrun compatibility tests are tracked
 as unresolved work. See `STATUS.md` before using this implementation.
+
+The current module slice supports explicit `-L` directories and recursive
+`include` of `.jq` files in the observed flat and nested layouts. Imports,
+module metadata, JSON modules and jq's default module paths are explicitly
+unsupported; the finite acceptance results and remaining boundaries are in
+`STATUS.md`.

@@ -8,6 +8,7 @@ from decimal import Context, Decimal, InvalidOperation, ROUND_HALF_EVEN
 import functools
 import json
 import math
+from pathlib import Path
 import re
 import sys
 
@@ -821,6 +822,8 @@ def values(node, value, variables):
         argument = arguments[0] if len(arguments) == 1 else None
         if name == 'empty' and argument is None:
             return
+        if name == 'modulemeta':
+            raise RuntimeErrorJq('modulemeta is not supported yet')
         if name == 'have_decnum' and argument is None:
             yield True
         elif name == 'length' and argument is None:
@@ -1294,9 +1297,144 @@ class InputStream:
                 yield from records
 
 
+def strip_jq_comments(source):
+    """Remove line comments while preserving quoted strings and line breaks."""
+    result = []
+    index = 0
+    in_string = False
+    escaped = False
+    while index < len(source):
+        char = source[index]
+        if in_string:
+            result.append(char)
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+            result.append(char)
+            index += 1
+            continue
+        if char == '#':
+            index += 1
+            while True:
+                start = index
+                while index < len(source) and source[index] != '\n':
+                    index += 1
+                line = source[start:index]
+                continued = (len(line) - len(line.rstrip('\\'))) % 2 == 1
+                if index < len(source):
+                    result.append('\n')
+                    index += 1
+                if not continued or index >= len(source):
+                    break
+            continue
+        result.append(char)
+        index += 1
+    return ''.join(result)
+
+
+def find_module(module_name, library_paths):
+    if not module_name:
+        raise CompileError('module path must not be empty')
+    if module_name.startswith('~/') or module_name.startswith('$ORIGIN/'):
+        raise CompileError('module path prefix is not supported yet: ' + module_name)
+    if module_name.endswith('.json'):
+        raise CompileError('JSON modules are not supported yet')
+
+    path = Path(module_name)
+    if path.is_absolute():
+        roots = [Path('/')]
+    elif module_name in ('.', './') or module_name.startswith('./') or module_name.startswith('../'):
+        roots = [Path.cwd()]
+    else:
+        if not library_paths:
+            raise CompileError('default module search paths are not supported; pass -L directory')
+        roots = [Path(directory) for directory in library_paths]
+
+    for root in roots:
+        base = path if path.is_absolute() else root / path
+        if module_name.endswith('.jq'):
+            candidates = (base,)
+        else:
+            candidates = (Path(str(base) + '.jq'), base / (base.name + '.jq'))
+        for candidate in candidates:
+            try:
+                if candidate.is_file():
+                    return candidate
+            except OSError:
+                continue
+    return None
+
+
+def expand_module_includes(source, library_paths, stack=()):
+    """Expand the supported include subset before compiling the filter."""
+    source = strip_jq_comments(source)
+    result = []
+    index = 0
+    in_string = False
+    escaped = False
+    while index < len(source):
+        char = source[index]
+        if in_string:
+            result.append(char)
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            result.append(char)
+            in_string = True
+            index += 1
+            continue
+
+        tail = source[index:]
+        boundary = index == 0 or not (source[index - 1].isalnum() or source[index - 1] == '_')
+        if boundary and re.match(r'import\b\s*"', tail):
+            raise CompileError('import modules are not supported yet')
+        if boundary and re.match(r'module\b\s+', tail):
+            raise CompileError('module metadata is not supported yet')
+        if boundary and re.match(r'modulemeta\b', tail):
+            raise CompileError('modulemeta is not supported yet')
+        directive = re.match(r'include\b\s*("(?:\\.|[^"\\])*")\s*;', tail) if boundary else None
+        if directive:
+            try:
+                module_name = json.loads(directive.group(1))
+            except ValueError as exc:
+                raise CompileError('invalid module path string') from exc
+            module_path = find_module(module_name, library_paths)
+            if module_path is None:
+                raise CompileError('module not found: ' + module_name)
+            try:
+                resolved = module_path.resolve()
+                module_source = module_path.read_text(encoding='utf-8')
+            except (OSError, UnicodeError, RuntimeError) as exc:
+                raise CompileError('cannot read module ' + module_name + ': ' + str(exc)) from exc
+            if resolved in stack:
+                raise CompileError('recursive module include: ' + module_name)
+            result.append(expand_module_includes(module_source, library_paths, stack + (resolved,)))
+            result.append('\n')
+            index += directive.end()
+            continue
+
+        result.append(char)
+        index += 1
+    return ''.join(result)
+
+
 def main():
     flags = set()
     variables = {}
+    library_paths = []
     argv = sys.argv[1:]
     if argv == ['--version']:
         print('jq-reconstruction-wip')
@@ -1304,7 +1442,11 @@ def main():
     try:
         while argv and argv[0].startswith('-'):
             option = argv.pop(0)
-            if option in ('--arg', '--argjson'):
+            if option == '-L':
+                if not argv:
+                    raise CompileError(option + ' requires a directory')
+                library_paths.append(argv.pop(0))
+            elif option in ('--arg', '--argjson'):
                 if len(argv) < 2:
                     raise CompileError(option + ' requires name and value')
                 name, raw = argv.pop(0), argv.pop(0)
@@ -1329,7 +1471,8 @@ def main():
                 flags.update(option[1:])
         if not argv:
             raise CompileError('expected one filter')
-        program = Parser(argv.pop(0)).parse()
+        program_text = expand_module_includes(argv.pop(0), library_paths)
+        program = Parser(program_text).parse()
         validate_variables(program, set(variables))
         input_stream = InputStream(argv, 'R' in flags, 's' in flags,
                                    'stream' in flags, 'stream-errors' in flags, 'seq' in flags)
