@@ -56,6 +56,45 @@ def as_float(value):
     return float(Context(prec=17, rounding=ROUND_HALF_EVEN).create_decimal(decimal))
 
 
+def unary_math(name, value):
+    number = as_float(value)
+
+    if name in ('nearbyint', 'rint'):
+        rounded = float(round(number))
+        return math.copysign(rounded, number) if rounded == 0 else rounded
+    if name == 'logb':
+        if number == 0:
+            return -math.inf
+        if math.isnan(number):
+            return math.nan
+        if math.isinf(number):
+            return math.inf
+        return math.frexp(number)[1] - 1
+    if name == 'significand':
+        if number == 0:
+            return number
+        return math.frexp(number)[0] * 2
+    if name in ('log', 'log10', 'log2') and number == 0:
+        return -math.inf
+    if name == 'log1p' and number == -1:
+        return -math.inf
+    if name == 'atanh' and abs(number) == 1:
+        return math.copysign(math.inf, number)
+    if name == 'tgamma' and number == 0:
+        return math.copysign(math.inf, number)
+    if name in ('gamma', 'lgamma') and number <= 0 and number.is_integer():
+        return math.inf
+
+    try:
+        return _MATH_FUNCTIONS[name](number)
+    except ValueError:
+        return math.nan
+    except OverflowError:
+        if name == 'sinh':
+            return math.copysign(math.inf, number)
+        return math.inf
+
+
 def as_index(value):
     if not is_number(value):
         return None
@@ -876,6 +915,42 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('path', 1), ('paths', 0), ('paths', 1), ('pick', 1), ('del', 1),
                     ('delpaths', 1)}
 
+_MATH_FUNCTIONS = {
+    'acos': math.acos,
+    'acosh': math.acosh,
+    'asin': math.asin,
+    'asinh': math.asinh,
+    'atan': math.atan,
+    'atanh': math.atanh,
+    'cbrt': math.cbrt,
+    'cos': math.cos,
+    'cosh': math.cosh,
+    'erf': math.erf,
+    'erfc': math.erfc,
+    'exp': math.exp,
+    'exp10': lambda value: math.pow(10.0, value),
+    'exp2': math.exp2,
+    'expm1': math.expm1,
+    'fabs': math.fabs,
+    'gamma': math.lgamma,
+    'lgamma': math.lgamma,
+    'log': math.log,
+    'log10': math.log10,
+    'log1p': math.log1p,
+    'log2': math.log2,
+    'logb': lambda value: math.frexp(value)[1] - 1,
+    'nearbyint': round,
+    'rint': round,
+    'significand': lambda value: math.frexp(value)[0] * 2,
+    'sin': math.sin,
+    'sinh': math.sinh,
+    'sqrt': math.sqrt,
+    'tan': math.tan,
+    'tanh': math.tanh,
+    'tgamma': math.gamma,
+}
+_BUILTIN_ARITIES.update((name, 0) for name in _MATH_FUNCTIONS)
+
 
 def validate_variables(node, names, functions=None, visiting=None):
     if functions is None:
@@ -1533,6 +1608,10 @@ def values(node, value, variables):
                 'trunc': ROUND_DOWN,
             }[name]
             yield JqNumber.from_decimal(number.to_integral_value(rounding=rounding))
+        elif name in _MATH_FUNCTIONS and argument is None:
+            if not is_number(value):
+                raise RuntimeErrorJq('number required')
+            yield unary_math(name, value)
         elif name == 'have_decnum' and argument is None:
             yield True
         elif name == 'length' and argument is None:

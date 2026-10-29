@@ -119,3 +119,10 @@ Selected `ceil`, `floor`, `round`, and `trunc` behavior covers finite numeric
 inputs, negative values, halfway cases, and negative zero. Non-finite numbers,
 extreme precision, platform math-library differences, and full jq compatibility
 remain outside the verified scope; see `STATUS.md`.
+
+Selected single-argument math behavior covers 32 additional filters, including
+trigonometric, exponential, logarithmic, gamma, and rounding-related functions.
+Together with the four rounding filters above, this is 36 of the 40 unary math
+filters documented by jq 1.8. The four Bessel functions and all multi-argument
+math filters remain unsupported; system math-library differences and full jq
+compatibility remain outside the verified scope. See `STATUS.md`.
