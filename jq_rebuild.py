@@ -596,6 +596,15 @@ def type_filter_matches(name, value):
     return value_type == _TYPE_FILTER_TYPES[name]
 
 
+def numeric_filter_matches(name, value):
+    if not is_number(value):
+        return False
+    number = as_float(value)
+    if name == 'finites':
+        return not math.isinf(number)
+    return math.isfinite(number) and abs(number) >= sys.float_info.min
+
+
 def contains_value(container, needle, strict_types=False):
     container_type, needle_type = jq_type_name(container), jq_type_name(needle)
     if container_type != needle_type:
@@ -998,6 +1007,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('arrays', 0), ('objects', 0), ('iterables', 0),
                     ('booleans', 0), ('numbers', 0), ('strings', 0),
                     ('nulls', 0), ('values', 0), ('scalars', 0),
+                    ('finites', 0), ('normals', 0),
                     ('tostring', 0), ('tojson', 0), ('fromjson', 0),
                     ('reverse', 0), ('contains', 1), ('inside', 1),
                     ('indices', 1), ('index', 1), ('rindex', 1),
@@ -2148,6 +2158,9 @@ def values(node, value, variables):
               name in {'iterables', 'scalars', 'values'}) and not arguments:
             if type_filter_matches(name, value):
                 yield value
+        elif name in {'finites', 'normals'} and not arguments:
+            if numeric_filter_matches(name, value):
+                yield value
         elif name == 'tostring' and argument is None:
             yield value if isinstance(value, str) else dump_json(value, compact=True)
         elif name == 'tojson' and argument is None:
@@ -2472,11 +2485,11 @@ def decode_atom(token):
     if token in constants:
         return constants[token]
     if token.lower() in ('nan', '+nan', '-nan'):
-        return None
+        return math.nan
     if token.lower() in ('inf', '+inf', 'infinity', '+infinity'):
-        return sys.float_info.max
+        return math.inf
     if token.lower() in ('-inf', '-infinity'):
-        return -sys.float_info.max
+        return -math.inf
     if not NUMBER_LITERAL.fullmatch(token):
         raise RuntimeErrorJq('invalid JSON literal')
     return JqNumber(token)
