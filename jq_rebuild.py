@@ -868,6 +868,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('to_entries', 0), ('from_entries', 0), ('with_entries', 1),
                     ('transpose', 0), ('getpath', 1), ('setpath', 2), ('walk', 1),
                     ('recurse', 0), ('recurse', 1), ('recurse', 2),
+                    ('limit', 2), ('skip', 2),
                     ('path', 1), ('paths', 0), ('paths', 1), ('pick', 1), ('del', 1),
                     ('delpaths', 1)}
 
@@ -1334,6 +1335,35 @@ def values(node, value, variables):
                                 yield from recurse_values(child)
 
             yield from recurse_values(value)
+            return
+        if name in ('limit', 'skip') and len(arguments) == 2:
+            for count in values(arguments[0], value, variables):
+                if isinstance(count, JqNumber):
+                    remaining = count.decimal
+                elif type(count) is int:
+                    remaining = Decimal(count)
+                elif type(count) is float and math.isfinite(count):
+                    remaining = Decimal(str(count))
+                else:
+                    raise RuntimeErrorJq(name + ' count must be a finite number')
+                if remaining < 0:
+                    raise RuntimeErrorJq(name + " doesn't support negative count")
+                stream = iter(values(arguments[1], value, variables))
+                if name == 'limit':
+                    while remaining > 0:
+                        item = next(stream, _MISSING)
+                        if item is _MISSING:
+                            break
+                        yield item
+                        remaining -= 1
+                else:
+                    remaining = int(remaining)
+                    while remaining > 0:
+                        item = next(stream, _MISSING)
+                        if item is _MISSING:
+                            break
+                        remaining -= 1
+                    yield from stream
             return
         if name == 'getpath' and len(arguments) == 1:
             for path in values(arguments[0], value, variables):

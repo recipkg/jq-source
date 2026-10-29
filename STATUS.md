@@ -266,3 +266,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented `recurse`, `recurse(f)`, and `recurse(f; condition)`: emit the current value first, then recursively follow generated children in depth-first order; the conditional form only enters matching children.
 - Black-box cases are in `recipkg/standard-library-verification/tests/test_jq_recurse.py`; all 4 recurse tests passed, including 100 deterministic JSON traversal comparisons. The full targeted `test_jq_*.py` suite passed all 103 methods against local `/usr/bin/jq` reporting 1.8.2; its exact build provenance is unverified.
 - Infinite generators, recursion depth/stack limits, exact errors, multiple condition results, platforms and complete jq compatibility remain unverified.
+
+
+## Stream limit and skip: 2026-10-30
+
+- Input: the `jq` recipe draft v0.1.45, fixed to upstream jq 1.8.2. The source definitions are `limit($n; expr)` and `skip($n; expr)` in fixed `src/builtin.jq` revision `34f7186b86743a083a589741b6cea95293524108`.
+- Implemented selected `limit` and `skip` generator behavior: ordered stream truncation/skipping, zero and empty count streams, observed fractional counts, multiple count outputs, and bounded consumption of an infinite recursive stream. Negative and sampled non-number counts fail explicitly.
+- The new verification file `test_jq_limit_skip.py` passed all four methods, including 100 fixed-seed differential array/count cases against local `/usr/bin/jq` reporting jq 1.8.2. The full `test_jq_*.py` suite passed all 107 tests in 70.859 seconds with this reconstruction as candidate. Reference build provenance is unverified.
+- Large/extreme counts, detailed error timing and wording, complex multi-value stream interleavings, recursion/resource limits, other platforms and complete jq compatibility remain unverified.
