@@ -22,7 +22,7 @@ ASCII-only case conversion, literal splitting, and joining arrays or objects.
 The `test(regex)`, `match(regex)`, `capture(regex)`, and `scan(regex)` filters
 use the host Oniguruma library with Perl NG syntax. Selected match metadata,
 named capture objects, and scan output forms have finite black-box coverage.
-Regex splitting and replacement filters remain unsupported.
+Regex `split(regex; flags)` and the `splits` stream have selected black-box coverage. Replacement filters remain unsupported.
 Unicode case conversion, general string interpolation, and nested array/object
 values in `join` are also outside the current slice.
 

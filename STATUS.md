@@ -335,3 +335,9 @@ visible; passing a subset does not establish full reconstruction.
 - Added selected `scan(regex)` / `scan(regex; flags)` behavior: force global matching, emit full-match strings without capture groups, and emit ordered capture-string/null arrays when groups exist. The one-argument form does not accept array shorthand; explicit null flags behave as no extra flags. Selected argument and input type errors fail explicitly.
 - Five focused black-box methods passed, including 100 fixed-seed differential cases across both filters. The full `test_jq_*.py` suite passed all 142 tests in 180.509 seconds. Implementation: [`jq-source d74c061`](https://github.com/recipkg/jq-source/tree/d74c06189c7c8c9634ce6d89065c350e47690d13); verification: [`standard-library-verification a57a953`](https://github.com/recipkg/standard-library-verification/tree/a57a95377baf5a1d958064e245ff9acc6ed7de4e). The local reference `/usr/bin/jq` reports 1.8.2; its build provenance is unverified.
 - The current host uses Oniguruma. Other platforms/library versions, regex splitting/substitution, resource boundaries and full jq compatibility remain unverified.
+
+## Regex split iteration: 2026-10-30
+
+- Added selected `split(regex; flags)` array behavior and `splits(regex)`/`splits(regex; flags)` stream behavior while retaining literal `split(str)`. Regex matches delimit without emitting captures; flags force global matching, null flags are accepted, and argument generators preserve jq's observed pattern-outer ordering. Empty, adjacent, Unicode and zero-width separators have finite coverage.
+- Five focused black-box methods passed, including 100 fixed-seed differential cases. The full regression result is pending.
+- `/usr/bin/jq` reports 1.8.2; build provenance is unverified. The candidate requires host Oniguruma. Other platforms, regex replacements and full jq compatibility remain unverified.
