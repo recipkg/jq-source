@@ -22,9 +22,12 @@ ASCII-only case conversion, literal splitting, and joining arrays or objects.
 The `test(regex)`, `match(regex)`, `capture(regex)`, and `scan(regex)` filters
 use the host Oniguruma library with Perl NG syntax. Selected match metadata,
 named capture objects, and scan output forms have finite black-box coverage.
-Regex `split(regex; flags)` and the `splits` stream have selected black-box coverage. Replacement filters remain unsupported.
-Unicode case conversion, general string interpolation, and nested array/object
-values in `join` are also outside the current slice.
+Regex `split(regex; flags)` and the `splits` stream have selected black-box
+coverage. `sub`/`gsub` now cover selected first/global replacement behavior,
+named-capture replacement filters, and string interpolation inside replacement
+strings. This does not establish general string-interpolation or complete
+regular-expression compatibility. Unicode case conversion and nested
+array/object values in `join` remain outside the current slice.
 
 Selected `type`, `tostring`, `tojson`, and single-value `fromjson` behavior is
 also implemented. Full number formatting and jq's complete JSON parsing

@@ -165,6 +165,71 @@ TOKEN = re.compile(
 )
 
 
+def scan_quoted_string(text, start):
+    index = start + 1
+    while index < len(text):
+        if text[index] == '\\' and index + 1 < len(text):
+            if text[index + 1] == '(':
+                index = scan_interpolation(text, index + 2) + 1
+            else:
+                index += 2
+        elif text[index] == '"':
+            return index + 1
+        else:
+            index += 1
+    raise CompileError('unterminated string')
+
+
+def scan_interpolation(text, start):
+    depth = 1
+    index = start
+    while index < len(text):
+        if text[index] == '"':
+            index = scan_quoted_string(text, index)
+        elif text[index] == '(':
+            depth += 1
+            index += 1
+        elif text[index] == ')':
+            depth -= 1
+            if depth == 0:
+                return index
+            index += 1
+        else:
+            index += 1
+    raise CompileError('unterminated string interpolation')
+
+
+def parse_string_token(token):
+    raw = token[1:-1]
+    parts = []
+    literal_start = 0
+    index = 0
+    while index < len(raw):
+        if raw[index] != '\\' or index + 1 >= len(raw):
+            index += 1
+            continue
+        if raw[index + 1] != '(':
+            index += 2
+            continue
+
+        literal = raw[literal_start:index]
+        if literal:
+            parts.append(json.loads('"' + literal + '"'))
+        expression_start = index + 2
+        cursor = scan_interpolation(raw, expression_start)
+        expression = raw[expression_start:cursor]
+        parts.append(Parser(expression).parse())
+        index = cursor + 1
+        literal_start = index
+
+    if not parts:
+        return ('literal', json.loads(token))
+    trailing = raw[literal_start:]
+    if trailing:
+        parts.append(json.loads('"' + trailing + '"'))
+    return ('string_interpolation', parts)
+
+
 class Parser:
     def __init__(self, text):
         self.tokens = []
@@ -173,6 +238,14 @@ class Parser:
         while text:
             if not text.strip():
                 break
+            leading = len(text) - len(text.lstrip())
+            if text[leading:leading + 1] == '"':
+                end = scan_quoted_string(text, leading)
+                self.tokens.append(('string', text[leading:end]))
+                self.positions.append((offset + leading, offset + end))
+                offset += end
+                text = text[end:]
+                continue
             match = TOKEN.match(text)
             if not match:
                 raise CompileError('unsupported or invalid syntax near ' + repr(text[:20]))
@@ -353,7 +426,7 @@ class Parser:
             node = ('object', fields)
         elif kind == 'string':
             try:
-                node = ('literal', json.loads(value))
+                node = parse_string_token(value)
             except ValueError as exc:
                 raise CompileError(str(exc)) from exc
         elif kind == 'number':
@@ -917,7 +990,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('while', 2), ('until', 2),
                     ('path', 1), ('paths', 0), ('paths', 1), ('pick', 1), ('del', 1),
                     ('delpaths', 1), ('test', 1), ('test', 2), ('match', 1), ('match', 2),
-                    ('capture', 1), ('capture', 2), ('scan', 1), ('scan', 2)}
+                    ('capture', 1), ('capture', 2), ('scan', 1), ('scan', 2),
+                    ('sub', 2), ('sub', 3), ('gsub', 2), ('gsub', 3)}
 
 _MATH_FUNCTIONS = {
     'acos': math.acos,
@@ -1333,6 +1407,53 @@ def oniguruma_splits(input_value, pattern, flags):
     yield input_value[start:]
 
 
+def oniguruma_replacement_add(left, right):
+    if right is None:
+        return left
+    if not isinstance(right, str):
+        raise RuntimeErrorJq(
+            f'string ({dump_json(left, compact=True)}) and '
+            f'{jq_type_name(right)} ({dump_json(right, compact=True)}) '
+            'cannot be added')
+    return left + right
+
+
+def oniguruma_append_global_flag(flags):
+    if flags is None:
+        return 'g'
+    if isinstance(flags, str):
+        return flags + 'g'
+    raise RuntimeErrorJq(
+        f'{jq_type_name(flags)} ({dump_json(flags, compact=True)}) and '
+        'string ("g") cannot be added')
+
+
+def oniguruma_replace(input_value, pattern, flags, replacement, variables):
+    matches = oniguruma_match(input_value, pattern, flags)
+    results = []
+    previous = 0
+    for match in matches:
+        gap = input_value[previous:match['offset']]
+        captures = {
+            item['name']: item['string']
+            for item in match['captures'] if item['name'] is not None
+        }
+        replacements = list(values(replacement, captures, variables))
+        for index, inserted in enumerate(replacements):
+            segment = oniguruma_replacement_add(gap, inserted)
+            if index < len(results):
+                results[index] += segment
+            else:
+                results.append(segment)
+        previous = match['offset'] + match['length']
+    if not results:
+        yield input_value
+        return
+    suffix = input_value[previous:]
+    for result in results:
+        yield result + suffix
+
+
 _BUILTIN_ARITIES.update((name, 0) for name in _MATH_FUNCTIONS)
 _BUILTIN_ARITIES.update((name, 0) for name in _MATH_ARRAY_FUNCTIONS)
 _BUILTIN_ARITIES.update((name, len(signature))
@@ -1516,6 +1637,21 @@ def values(node, value, variables):
         yield value
     elif kind == 'literal':
         yield node[1]
+    elif kind == 'string_interpolation':
+        expansions = ['']
+        for part in node[1]:
+            if isinstance(part, str):
+                expansions = [prefix + part for prefix in expansions]
+                continue
+            interpolated = list(values(part, value, variables))
+            if not interpolated:
+                return
+            expansions = [
+                prefix + (item if isinstance(item, str)
+                          else dump_json(item, compact=True))
+                for prefix in expansions for item in interpolated
+            ]
+        yield from expansions
     elif kind == 'def':
         _, name, parameters, body, rest = node
         captured = dict(variables)
@@ -1683,6 +1819,19 @@ def values(node, value, variables):
             yield from apply_parameters(0, captured)
             return
         argument = arguments[0] if len(arguments) == 1 else None
+        if name in ('sub', 'gsub') and len(arguments) in (2, 3):
+            for pattern in values(arguments[0], value, variables):
+                if len(arguments) == 2:
+                    flags = 'g' if name == 'gsub' else ''
+                    yield from oniguruma_replace(
+                        value, pattern, flags, arguments[1], variables)
+                    continue
+                for flags in values(arguments[2], value, variables):
+                    if name == 'gsub':
+                        flags = oniguruma_append_global_flag(flags)
+                    yield from oniguruma_replace(
+                        value, pattern, flags, arguments[1], variables)
+            return
         if name == 'test' and len(arguments) == 1:
             for candidate in values(arguments[0], value, variables):
                 pattern, flags = regex_argument(candidate)
