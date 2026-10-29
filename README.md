@@ -68,9 +68,10 @@ and null rows; shorter rows are padded with null. Non-array rows fail in the
 observed samples. See `STATUS.md` for the finite comparison and boundaries.
 
 
-Selected `getpath` behavior covers nested object and array paths, missing values,
-negative and fractional indices, and null interruption. Invalid path/component
-types fail in the tested cases; see `STATUS.md` for boundaries.
+Selected `getpath` behavior covers nested object and array paths, comma-generated
+multiple paths, missing values, negative and fractional indices, and null
+interruption. Invalid path/component types fail in tested cases; see
+`STATUS.md` for boundaries.
 
 
 Selected `setpath` behavior covers nested creation, array extension with null,

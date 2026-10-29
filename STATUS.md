@@ -192,6 +192,13 @@ visible; passing a subset does not establish full reconstruction.
 - Exact errors/timing, generator paths beyond these samples, unusual number indices, resources, platforms and full jq compatibility remain incomplete or unverified.
 
 
+## Multiple `getpath` results: 2026-10-30
+
+- The jq 1.8 manual example `getpath(["a","b"], ["a","c"])` uses a comma expression to generate path values for the single `PATHS` parameter; it does not add a second function parameter.
+- The existing implementation already evaluates the generated path stream in order. Verification commit `0072dfc` adds black-box coverage against local `/usr/bin/jq` and the candidate executable; all 4 `getpath` tests and the full 94-test `test_jq_*.py` suite passed.
+- Other generator combinations and complete jq compatibility remain unverified.
+
+
 ## Path update iteration: 2026-10-30
 
 - Input: `recipkg/jq` v0.1.35 with its pinned recursive `software-quality` dependency. Black-box samples are in `recipkg/standard-library-verification` commit `eb60085`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
