@@ -867,7 +867,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('range', 1), ('range', 2), ('range', 3),
                     ('to_entries', 0), ('from_entries', 0), ('with_entries', 1),
                     ('transpose', 0), ('getpath', 1), ('setpath', 2),
-                    ('path', 1), ('paths', 0), ('paths', 1), ('delpaths', 1)}
+                    ('path', 1), ('paths', 0), ('paths', 1), ('del', 1),
+                    ('delpaths', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -1313,6 +1314,10 @@ def values(node, value, variables):
                 item = read_path(value, path)
                 if any(truth(result) for result in values(arguments[0], item, variables)):
                     yield list(path)
+            return
+        if name == 'del' and len(arguments) == 1:
+            path_values = [list(path) for path in paths(arguments[0], value, variables)]
+            yield delete_paths(value, path_values)
             return
         if name == 'delpaths' and len(arguments) == 1:
             for path_values in values(arguments[0], value, variables):

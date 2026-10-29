@@ -91,3 +91,8 @@ Selected SQL-style `INDEX`, `JOIN`, and uppercase `IN` behavior covers indexed
 streams, the documented two/three/four-argument join forms, and one/two-stream
 membership checks. Exact evaluation order and broader stream/error semantics
 remain limited; see `STATUS.md`.
+
+Selected `del(path_expression)` behavior removes exact, multi-value, and
+iterator-selected paths simultaneously. Object fields, array indices, missing
+paths, overlapping paths, and root deletion are only covered by finite samples
+listed in `STATUS.md`.

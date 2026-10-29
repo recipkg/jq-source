@@ -222,3 +222,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected uppercase `INDEX(stream; index_expression)`, `JOIN` with two, three, and four arguments, and uppercase `IN` with one or two streams. `INDEX` handles multiple keys per row and last-write wins on duplicate keys; observed keys include null, boolean, numeric, array, and object values. `JOIN` emits row/index pairs or applies a join filter, and missing keys yield null. The two-argument form collects pairs into an array. `IN` checks the input against a stream or intersects two streams.
 - All 5 SQL-operator test methods passed, including 100 deterministic indexed-join comparisons. The complete targeted `test_jq_*.py` suite passed all 85 methods; after extending typed-key cases, the SQL-operator file passed all 5 methods again.
 - Full jq stream evaluation order, exact diagnostics/error timing, large-stream resource behavior, other platforms, and complete jq compatibility remain incomplete or unverified.
+
+
+## Path-expression deletion iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.39 with its pinned recursive `software-quality` dependency. Black-box cases are in `recipkg/standard-library-verification/tests/test_jq_del.py`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented selected `del(path_expression)` behavior by resolving the supported path expression forms and applying all selected deletions together. Samples include object fields, comma/multi-index selectors, array and object iteration, negative/out-of-range indices, missing fields, overlapping parent/child paths, and root deletion to null.
+- All 4 del test methods passed, including 100 deterministic nested-value comparisons. The complete targeted `test_jq_*.py` regression suite passed all 89 methods against the candidate, with configured differential cases using local jq 1.8.2.
+- Arbitrary path syntax, exact errors/evaluation order, resource limits, other platforms, and full jq compatibility remain incomplete or unverified.
