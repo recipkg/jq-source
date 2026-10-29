@@ -120,10 +120,10 @@ inputs, negative values, halfway cases, and negative zero. Non-finite numbers,
 extreme precision, platform math-library differences, and full jq compatibility
 remain outside the verified scope; see `STATUS.md`.
 
-Selected single-argument math behavior covers 36 of jq 1.8's 40 documented
-filters; only the four Bessel functions remain unsupported. The C math filters
+Selected single-argument math behavior covers all 40 of jq 1.8's documented
+filters on this host, including the four Bessel functions. The C math filters
 with multiple explicit arguments, `frexp`/`modf` decomposition results, and
 `fma` are also covered in finite local differential samples. These use the
-host's C math library through Python's standard-library `ctypes`, so platform
-availability and full jq compatibility remain outside the verified scope. See
-`STATUS.md`.
+host's C math library through Python's standard-library `ctypes`; unavailable
+symbols remain explicit runtime errors, and platform availability and full jq
+compatibility remain outside the verified scope. See `STATUS.md`.
