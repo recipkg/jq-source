@@ -443,6 +443,43 @@ def compare_values(left, right):
     return (len(left) > len(right)) - (len(left) < len(right))
 
 
+def jq_type_name(value):
+    if value is None:
+        return 'null'
+    if isinstance(value, bool):
+        return 'boolean'
+    if is_number(value):
+        return 'number'
+    if isinstance(value, str):
+        return 'string'
+    if isinstance(value, list):
+        return 'array'
+    if isinstance(value, dict):
+        return 'object'
+    raise RuntimeErrorJq('unsupported value type')
+
+
+def contains_value(container, needle, strict_types=False):
+    container_type, needle_type = jq_type_name(container), jq_type_name(needle)
+    if container_type != needle_type:
+        if strict_types:
+            raise RuntimeErrorJq('incompatible types for containment')
+        return False
+    if container_type == 'string':
+        return needle in container
+    if container_type == 'array':
+        return all(any(contains_value(item, child) for item in container)
+                   for child in needle)
+    if container_type == 'object':
+        return all(key in container and contains_value(container[key], child)
+                   for key, child in needle.items())
+    if container_type == 'boolean' and container != needle:
+        if strict_types:
+            raise RuntimeErrorJq('incompatible boolean values for containment')
+        return False
+    return compare_values(container, needle) == 0
+
+
 def paths(node, root, variables):
     kind = node[0]
     if kind == 'identity':
@@ -556,7 +593,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('add', 0), ('add', 1), ('ascii_downcase', 0), ('ascii_upcase', 0),
                     ('startswith', 1), ('endswith', 1), ('ltrimstr', 1), ('rtrimstr', 1),
                     ('trimstr', 1), ('split', 1), ('join', 1), ('type', 0),
-                    ('tostring', 0), ('tojson', 0), ('fromjson', 0)}
+                    ('tostring', 0), ('tojson', 0), ('fromjson', 0),
+                    ('reverse', 0), ('contains', 1), ('inside', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -840,20 +878,7 @@ def values(node, value, variables):
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')
         if name == 'type' and argument is None:
-            if value is None:
-                yield 'null'
-            elif isinstance(value, bool):
-                yield 'boolean'
-            elif is_number(value):
-                yield 'number'
-            elif isinstance(value, str):
-                yield 'string'
-            elif isinstance(value, list):
-                yield 'array'
-            elif isinstance(value, dict):
-                yield 'object'
-            else:
-                raise RuntimeErrorJq('unsupported value type')
+            yield jq_type_name(value)
         elif name == 'tostring' and argument is None:
             yield value if isinstance(value, str) else dump_json(value, compact=True)
         elif name == 'tojson' and argument is None:
@@ -865,6 +890,14 @@ def values(node, value, variables):
             if len(parsed) != 1:
                 raise RuntimeErrorJq('fromjson requires exactly one JSON value')
             yield parsed[0]
+        elif name == 'reverse' and argument is None:
+            if not isinstance(value, list):
+                raise RuntimeErrorJq('reverse requires an array')
+            yield list(reversed(value))
+        elif name in ('contains', 'inside') and argument is not None:
+            for other in values(argument, value, variables):
+                yield (contains_value(value, other, strict_types=True) if name == 'contains'
+                       else contains_value(other, value, strict_types=True))
         elif name == 'have_decnum' and argument is None:
             yield True
         elif name == 'length' and argument is None:

@@ -25,3 +25,7 @@ string interpolation, or nested array/object values in `join`.
 Selected `type`, `tostring`, `tojson`, and single-value `fromjson` behavior is
 also implemented. Full number formatting and jq's complete JSON parsing
 semantics remain unverified.
+
+Selected recursive `contains`/`inside` behavior and array `reverse` are
+implemented and tracked separately in `STATUS.md`; this still covers only a
+small portion of jq's built-in filters.
