@@ -166,3 +166,11 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected one-, two-, and three-argument `range` forms using decimal arithmetic. Samples cover ascending and descending ranges, fractional bounds, positive and negative steps, zero-step/empty ranges, and invalid argument types. The implementation explicitly caps decimal precision at 10,000 digits and rejects a step that cannot advance the current value.
 - All 3 range test methods passed, including 100 deterministic integer range comparisons. After this update, all 19 main jq contract methods and all 59 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
 - Argument filters that emit multiple values, very large or extreme exponents, exact error timing/diagnostics, resource limits, platforms and full jq compatibility remain incomplete or unverified.
+
+
+## Entry conversion iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.32 with its pinned recursive `software-quality` dependency. Black-box samples are in `recipkg/standard-library-verification` commit `eeb7e48`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented selected `to_entries`, `from_entries`, and `with_entries` behavior. Objects retain their observed entry order; arrays become index/value entries. `from_entries` accepts the documented `key`/`Key`/`name`/`Name` and `value`/`Value` fields, missing values default to null, and repeated keys keep the last value. `with_entries` applies filters that update or discard entries.
+- All 4 entry-conversion test methods passed, including deterministic comparisons over 100 objects and 100 arrays. After this update, all 19 main jq contract methods and all 63 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
+- Non-object entry details, numeric keys passed to `from_entries`, exact diagnostics/error timing, broad multi-result semantics, resource limits, platforms and full jq compatibility remain incomplete or unverified.

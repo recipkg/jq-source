@@ -737,7 +737,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('last', 0), ('last', 1), ('nth', 1), ('nth', 2),
                     ('isempty', 1), ('any', 0), ('any', 1), ('any', 2),
                     ('all', 0), ('all', 1), ('all', 2),
-                    ('range', 1), ('range', 2), ('range', 3)}
+                    ('range', 1), ('range', 2), ('range', 3),
+                    ('to_entries', 0), ('from_entries', 0), ('with_entries', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -841,6 +842,42 @@ def has_key(container, key):
         index = as_index(key)
         return index is not None and 0 <= index < len(container)
     raise RuntimeErrorJq('cannot check membership for these values')
+
+
+def to_entries_value(value):
+    if isinstance(value, dict):
+        return [{'key': key, 'value': item} for key, item in value.items()]
+    if isinstance(value, list):
+        return [{'key': index, 'value': item} for index, item in enumerate(value)]
+    raise RuntimeErrorJq('to_entries requires an object or array')
+
+
+def from_entries_value(value):
+    if isinstance(value, list):
+        entries = value
+    elif isinstance(value, dict):
+        entries = list(value.values())
+    else:
+        raise RuntimeErrorJq('from_entries requires an array or object')
+
+    result = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise RuntimeErrorJq('from_entries entries must be objects')
+        key = None
+        for field in ('key', 'Key', 'name', 'Name'):
+            candidate = entry.get(field)
+            if truth(candidate):
+                key = candidate
+                break
+        if not isinstance(key, str):
+            raise RuntimeErrorJq('from_entries key must be a string')
+        if 'value' in entry:
+            item = entry['value']
+        else:
+            item = entry.get('Value')
+        result[key] = item
+    return result
 
 
 def values(node, value, variables):
@@ -1078,6 +1115,19 @@ def values(node, value, variables):
             return
         if name == 'range' and len(arguments) in (1, 2, 3):
             yield from range_values(arguments, value, variables)
+            return
+        if name == 'to_entries' and argument is None:
+            yield to_entries_value(value)
+            return
+        if name == 'from_entries' and argument is None:
+            yield from_entries_value(value)
+            return
+        if name == 'with_entries' and len(arguments) == 1:
+            converted = to_entries_value(value)
+            transformed = []
+            for entry in converted:
+                transformed.extend(values(arguments[0], entry, variables))
+            yield from_entries_value(transformed)
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')

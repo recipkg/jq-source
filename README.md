@@ -55,3 +55,9 @@ Selected `range` behavior covers the one-, two-, and three-argument forms,
 ascending and descending integer/fractional sequences, and an empty result for a
 zero step. This is a finite tested slice; argument streams and extreme numeric
 precision remain limited as recorded in `STATUS.md`.
+
+
+Selected `to_entries`, `from_entries`, and `with_entries` behavior covers
+objects and arrays, documented entry-name aliases, key/value updates, and
+filtering entries. These conversions remain a finite tested slice; exact error
+messages and uncommon input combinations are not fully covered.
