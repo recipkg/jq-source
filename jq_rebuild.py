@@ -538,6 +538,31 @@ def flatten_value(value, depth=None):
     return result
 
 
+def implode_value(value):
+    if not isinstance(value, list):
+        raise RuntimeErrorJq('implode requires an array')
+    result = []
+    for codepoint in value:
+        if not is_number(codepoint):
+            raise RuntimeErrorJq('implode requires numeric codepoints')
+        if isinstance(codepoint, JqNumber):
+            number = codepoint.decimal
+            if not number.is_finite() or number <= -1 or number >= 0x110000:
+                result.append('\ufffd')
+                continue
+            point = int(number)
+        elif isinstance(codepoint, float):
+            if not math.isfinite(codepoint) or codepoint <= -1 or codepoint >= 0x110000:
+                result.append('\ufffd')
+                continue
+            point = int(codepoint)
+        else:
+            point = codepoint
+        result.append(chr(point) if 0 <= point <= 0x10FFFF
+                      and not 0xD800 <= point <= 0xDFFF else '\ufffd')
+    return ''.join(result)
+
+
 def paths(node, root, variables):
     kind = node[0]
     if kind == 'identity':
@@ -654,7 +679,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('tostring', 0), ('tojson', 0), ('fromjson', 0),
                     ('reverse', 0), ('contains', 1), ('inside', 1),
                     ('indices', 1), ('index', 1), ('rindex', 1),
-                    ('flatten', 0), ('flatten', 1)}
+                    ('flatten', 0), ('flatten', 1), ('utf8bytelength', 0),
+                    ('explode', 0), ('implode', 0)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -998,6 +1024,23 @@ def values(node, value, variables):
                 yield abs(value)
             else:
                 raise RuntimeErrorJq('length not defined for this value')
+        elif name == 'utf8bytelength' and argument is None:
+            if not isinstance(value, str):
+                raise RuntimeErrorJq('utf8bytelength requires a string')
+            try:
+                yield len(value.encode('utf-8'))
+            except UnicodeEncodeError as exc:
+                raise RuntimeErrorJq('utf8bytelength requires valid Unicode') from exc
+        elif name == 'explode' and argument is None:
+            if not isinstance(value, str):
+                raise RuntimeErrorJq('explode requires a string')
+            try:
+                value.encode('utf-8')
+            except UnicodeEncodeError as exc:
+                raise RuntimeErrorJq('explode requires valid Unicode') from exc
+            yield [ord(character) for character in value]
+        elif name == 'implode' and argument is None:
+            yield implode_value(value)
         elif name in ('ascii_downcase', 'ascii_upcase') and argument is None:
             if not isinstance(value, str):
                 raise RuntimeErrorJq(name + ' requires a string')

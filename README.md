@@ -38,3 +38,6 @@ Selected `length` behavior covers strings, arrays, objects, null, and numbers;
 booleans fail. `flatten` supports arrays and object values with no depth or a
 non-negative integer depth. Fractional depths fail explicitly and are outside
 the current compatibility claim.
+
+Selected `utf8bytelength`, `explode`, and `implode` behavior is implemented;
+the finite Unicode and numeric boundary samples are listed in `STATUS.md`.

@@ -137,3 +137,10 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented selected `length` behavior for Unicode strings, arrays, objects, null and numbers; booleans error. Added `flatten` with full array flattening or non-negative integer depth, and observed object-value iteration. Fractional depths are rejected explicitly and remain unsupported.
 - All 4 array-value test methods passed, including fixed type/depth/error cases and deterministic comparisons over 80 nested arrays with depths 0–4. After this change, all 19 main jq contract methods and 44 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
 - Fractional `flatten` depth semantics, all object/array combinations, extreme nesting/resource limits, exact diagnostics, platform behavior and full jq compatibility remain incomplete or unverified.
+
+## Unicode conversion iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.28 with its pinned recursive `software-quality` dependency. Black-box samples are in `recipkg/standard-library-verification` commit `0f507d9a35048958e7ea5e42697506722b454384`; the upstream comparison used local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented `utf8bytelength` for strings, `explode` to Unicode codepoint numbers, and `implode` for arrays of numeric codepoints. The recorded samples include UTF-8 byte counts, combining marks, NUL, supplementary-plane characters, fractional numeric truncation, and replacement characters for out-of-range or surrogate codepoints.
+- All 4 Unicode test methods passed, including deterministic comparison over 100 Unicode strings and 100 codepoint arrays. After this change, all 19 main jq contract methods and all 48 targeted `test_jq_*.py` methods passed on the candidate; configured differential cases used local jq 1.8.2.
+- Invalid Unicode in direct non-JSON strings, extreme numeric conversion and resource limits, exact diagnostics, platform behavior and full jq compatibility remain incomplete or unverified.
