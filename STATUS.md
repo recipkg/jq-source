@@ -199,6 +199,13 @@ visible; passing a subset does not establish full reconstruction.
 - Other generator combinations and complete jq compatibility remain unverified.
 
 
+## Multiple `setpath` results: 2026-10-30
+
+- A comma expression can generate multiple path arrays for the `PATHS` input. Each generated path produces an update based on the original input, in path order; changes do not accumulate between outputs.
+- Verification commit `8fa4c5f` adds this black-box case. All 4 `setpath` tests and the full 95-test `test_jq_*.py` suite passed against the candidate and local `/usr/bin/jq` reference.
+- Other path/value generator combinations, exact errors, allocation limits, platforms and complete jq compatibility remain unverified.
+
+
 ## Path update iteration: 2026-10-30
 
 - Input: `recipkg/jq` v0.1.35 with its pinned recursive `software-quality` dependency. Black-box samples are in `recipkg/standard-library-verification` commit `eb60085`; the reference is local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.

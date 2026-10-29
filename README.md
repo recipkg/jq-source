@@ -75,8 +75,9 @@ interruption. Invalid path/component types fail in tested cases; see
 
 
 Selected `setpath` behavior covers nested creation, array extension with null,
-negative indices, and root replacement. Path and container errors are only
-checked in the finite cases listed in `STATUS.md`.
+negative indices, root replacement, and comma-generated paths that each update
+the original input independently. Path and container errors are only checked
+in the finite cases listed in `STATUS.md`.
 
 
 Selected `path(expr)` and `paths` behavior covers exact field/index paths,
