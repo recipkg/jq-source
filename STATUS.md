@@ -320,4 +320,11 @@ visible; passing a subset does not establish full reconstruction.
 
 - Implemented `test(regex)` and `test(regex; flags)` with Oniguruma Perl NG through `ctypes`; added string/array argument forms, flag handling, generator order, and explicit type/pattern/modifier errors.
 - All five focused black-box methods passed, including 100 fixed-seed differential cases. The full `test_jq_*.py` suite passed all 132 tests in 173.087 seconds through [`jq-workspace 5424a93`](https://github.com/recipkg/jq-workspace/tree/5424a93), pinned to this implementation at `e99a6c8` and recipe `997d585`; local `/usr/bin/jq` reports 1.8.2, but its build provenance is unverified. Recipkg pack/check and English/Simplified Chinese build/discover also passed with recursive quality dependency context and byte-identical repeated archives.
-- Current runtime requires a compatible host `libonig`; the unavailable-library branch is implemented but was not exercised on this host. Other platforms and library versions remain unverified. `match`, `capture`, `scan`, regex splitting, substitutions, exact diagnostics and full jq compatibility remain incomplete.
+- Current runtime requires a compatible host `libonig`; the unavailable-library branch is implemented but was not exercised on this host. Other platforms and library versions remain unverified. `capture`, `scan`, regex splitting, substitutions, exact diagnostics and full jq compatibility remain incomplete; selected `match` output is covered in the next iteration.
+
+
+## Match metadata iteration: 2026-10-30
+
+- Implemented `match(regex)` and `match(regex; flags)` with first/global results, Unicode codepoint offsets, named and unnamed capture metadata, unmatched captures, array shorthand, and explicit argument errors. Global zero-width matching advances the search start by one byte, matching the observed jq 1.8.2 behavior even when this produces repeated Unicode codepoint offsets.
+- All five focused black-box methods passed, including 100 fixed-seed differential cases against local `/usr/bin/jq` reporting 1.8.2; exact build provenance is unverified. The complete workspace regression is pending.
+- The runtime still requires compatible host `libonig`; other platforms and library versions remain unverified. Standalone `capture`, `scan`, regex splitting, substitutions, and complete jq compatibility remain incomplete.

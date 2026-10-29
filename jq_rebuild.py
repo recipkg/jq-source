@@ -915,7 +915,7 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('limit', 2), ('skip', 2),
                     ('while', 2), ('until', 2),
                     ('path', 1), ('paths', 0), ('paths', 1), ('pick', 1), ('del', 1),
-                    ('delpaths', 1), ('test', 1), ('test', 2)}
+                    ('delpaths', 1), ('test', 1), ('test', 2), ('match', 1), ('match', 2)}
 
 _MATH_FUNCTIONS = {
     'acos': math.acos,
@@ -1050,6 +1050,21 @@ class _OnigErrorInfo(ctypes.Structure):
                 ('par_end', ctypes.c_void_p)]
 
 
+class _OnigRegion(ctypes.Structure):
+    _fields_ = [
+        ('allocated', ctypes.c_int),
+        ('num_regs', ctypes.c_int),
+        ('beg', ctypes.POINTER(ctypes.c_int)),
+        ('end', ctypes.POINTER(ctypes.c_int)),
+        ('history_root', ctypes.c_void_p),
+    ]
+
+
+_OnigNameCallback = ctypes.CFUNCTYPE(
+    ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,
+    ctypes.POINTER(ctypes.c_int), ctypes.c_void_p, ctypes.c_void_p)
+
+
 def load_oniguruma():
     global _ONIGURUMA_RUNTIME
     if _ONIGURUMA_RUNTIME is not _ONIGURUMA_UNINITIALIZED:
@@ -1079,7 +1094,12 @@ def load_oniguruma():
         library.onig_region_new.restype = ctypes.c_void_p
         library.onig_region_free.argtypes = [ctypes.c_void_p, ctypes.c_int]
         library.onig_free.argtypes = [ctypes.c_void_p]
+        library.onig_error_code_to_str.argtypes = [
+            ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(_OnigErrorInfo)]
         library.onig_error_code_to_str.restype = ctypes.c_int
+        library.onig_foreach_name.argtypes = [
+            ctypes.c_void_p, _OnigNameCallback, ctypes.c_void_p]
+        library.onig_foreach_name.restype = ctypes.c_int
     except (AttributeError, OSError, ValueError):
         return None
     _ONIGURUMA_RUNTIME = (library, encoding, syntax)
@@ -1107,17 +1127,16 @@ def regex_argument(value):
     raise RuntimeErrorJq(jq_type_name(value) + ' not a string or array')
 
 
-def oniguruma_test(input_value, pattern, flags):
-    if not isinstance(input_value, str):
-        raise RuntimeErrorJq(regex_type_error(
-            input_value, 'cannot be matched, as it is not a string'))
+def oniguruma_compile(pattern, flags):
     if not isinstance(pattern, str):
         raise RuntimeErrorJq(regex_type_error(pattern, 'is not a string'))
     if flags is not None and not isinstance(flags, str):
         raise RuntimeErrorJq(regex_type_error(flags, 'is not a string'))
     options = 256  # ONIG_OPTION_CAPTURE_GROUP
+    global_search = False
     for flag in flags or '':
         if flag == 'g':
+            global_search = True
             continue
         if flag not in _ONIG_OPTION_FLAGS:
             raise RuntimeErrorJq((flags or '') + ' is not a valid modifier string')
@@ -1129,13 +1148,9 @@ def oniguruma_test(input_value, pattern, flags):
             'match/test/sub and related functions are not available.')
     library, encoding, syntax = runtime
     pattern_bytes = pattern.encode('utf-8')
-    input_bytes = input_value.encode('utf-8')
     pattern_buffer = ctypes.create_string_buffer(pattern_bytes)
-    input_buffer = ctypes.create_string_buffer(input_bytes)
     pattern_start = ctypes.cast(pattern_buffer, ctypes.c_void_p)
     pattern_end = ctypes.c_void_p(ctypes.addressof(pattern_buffer) + len(pattern_bytes))
-    input_start = ctypes.c_void_p(ctypes.addressof(input_buffer))
-    input_end = ctypes.c_void_p(ctypes.addressof(input_buffer) + len(input_bytes))
     regex = ctypes.c_void_p()
     error_info = _OnigErrorInfo()
     status = library.onig_new(
@@ -1144,6 +1159,19 @@ def oniguruma_test(input_value, pattern, flags):
     if status != 0:
         raise RuntimeErrorJq('Regex failure: ' +
                              oniguruma_error(library, status, error_info))
+    return library, regex, global_search
+
+
+def oniguruma_test(input_value, pattern, flags):
+    if not isinstance(input_value, str):
+        raise RuntimeErrorJq(regex_type_error(
+            input_value, 'cannot be matched, as it is not a string'))
+    library, regex, _ = oniguruma_compile(pattern, flags)
+    input_bytes = input_value.encode('utf-8')
+    input_buffer = ctypes.create_string_buffer(input_bytes)
+    input_start = ctypes.cast(input_buffer, ctypes.c_void_p)
+    input_end = ctypes.c_void_p(ctypes.addressof(input_buffer) + len(input_bytes))
+    error_info = _OnigErrorInfo()
     region = library.onig_region_new()
     if not region:
         library.onig_free(regex)
@@ -1160,6 +1188,103 @@ def oniguruma_test(input_value, pattern, flags):
     finally:
         library.onig_region_free(region, 1)
         library.onig_free(regex)
+
+
+def oniguruma_capture_names(library, regex):
+    names = {}
+
+    def add_name(name_start, name_end, count, group_numbers, _regex, _arg):
+        raw_name = ctypes.string_at(name_start, name_end - name_start)
+        group_name = raw_name.decode('utf-8', errors='replace')
+        for index in range(count):
+            names[group_numbers[index]] = group_name
+        return 0
+
+    callback = _OnigNameCallback(add_name)
+    library.onig_foreach_name(regex, callback, None)
+    return names
+
+
+def oniguruma_match(input_value, pattern, flags):
+    if not isinstance(input_value, str):
+        raise RuntimeErrorJq(regex_type_error(
+            input_value, 'cannot be matched, as it is not a string'))
+    library, regex, global_search = oniguruma_compile(pattern, flags)
+    input_bytes = input_value.encode('utf-8')
+    input_buffer = ctypes.create_string_buffer(input_bytes)
+    input_address = ctypes.addressof(input_buffer)
+    input_start = ctypes.c_void_p(input_address)
+    input_end = ctypes.c_void_p(input_address + len(input_bytes))
+    error_info = _OnigErrorInfo()
+    region = library.onig_region_new()
+    if not region:
+        library.onig_free(regex)
+        raise RuntimeErrorJq('regex match allocation failed')
+    names = oniguruma_capture_names(library, regex)
+
+    def codepoint_offset(byte_offset):
+        return sum(1 for byte in input_bytes[:byte_offset]
+                   if byte & 0xc0 != 0x80)
+    results = []
+    search_offset = 0
+    try:
+        while search_offset <= len(input_bytes):
+            search_start = ctypes.c_void_p(input_address + search_offset)
+            status = library.onig_search(
+                regex, input_start, input_end, search_start, input_end, region, 0)
+            if status == -1:  # ONIG_MISMATCH
+                break
+            if status < 0:
+                raise RuntimeErrorJq('Regex failure: ' +
+                                     oniguruma_error(library, status, error_info))
+
+            match_region = ctypes.cast(
+                region, ctypes.POINTER(_OnigRegion)).contents
+            match_start = match_region.beg[0]
+            match_end = match_region.end[0]
+            start_offset = codepoint_offset(match_start)
+            end_offset = codepoint_offset(match_end)
+            matched_text = input_bytes[match_start:match_end].decode('utf-8')
+            captures = []
+            for index in range(1, match_region.num_regs):
+                capture_start = match_region.beg[index]
+                capture_end = match_region.end[index]
+                if capture_start < 0:
+                    capture = {
+                        'offset': -1,
+                        'length': 0,
+                        'string': None,
+                        'name': names.get(index),
+                    }
+                else:
+                    capture_start_cp = codepoint_offset(capture_start)
+                    capture_end_cp = codepoint_offset(capture_end)
+                    capture = {
+                        'offset': capture_start_cp,
+                        'length': capture_end_cp - capture_start_cp,
+                        'string': input_bytes[
+                            capture_start:capture_end].decode('utf-8'),
+                        'name': names.get(index),
+                    }
+                captures.append(capture)
+            results.append({
+                'offset': start_offset,
+                'length': end_offset - start_offset,
+                'string': matched_text,
+                'captures': captures,
+            })
+            if not global_search:
+                break
+            if match_start == match_end:
+                # jq advances one byte after a zero-width match.
+                search_offset = match_end + 1
+            else:
+                search_offset = match_end
+                library.onig_region_free(region, 0)
+    finally:
+        library.onig_region_free(region, 1)
+        library.onig_free(regex)
+    return results
 
 
 _BUILTIN_ARITIES.update((name, 0) for name in _MATH_FUNCTIONS)
@@ -1521,6 +1646,16 @@ def values(node, value, variables):
             for flags in values(arguments[1], value, variables):
                 for pattern in values(arguments[0], value, variables):
                     yield oniguruma_test(value, pattern, flags)
+            return
+        if name == 'match' and len(arguments) == 1:
+            for candidate in values(arguments[0], value, variables):
+                pattern, flags = regex_argument(candidate)
+                yield from oniguruma_match(value, pattern, flags)
+            return
+        if name == 'match' and len(arguments) == 2:
+            for flags in values(arguments[1], value, variables):
+                for pattern in values(arguments[0], value, variables):
+                    yield from oniguruma_match(value, pattern, flags)
             return
         if name == 'empty' and argument is None:
             return

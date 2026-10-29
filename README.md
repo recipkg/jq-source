@@ -19,9 +19,10 @@ unsupported; the finite acceptance results and remaining boundaries are in
 
 The current string slice supports selected prefix/suffix tests and trimming,
 ASCII-only case conversion, literal splitting, and joining arrays or objects.
-The `test(regex)` and `test(regex; flags)` filters use the host Oniguruma
-library with Perl NG syntax; only finite cases are covered. Regex splitting,
-matching metadata, capture/scan and replacement filters remain unsupported.
+The `test(regex)` and `match(regex)` filters use the host Oniguruma library
+with Perl NG syntax; selected `match` output fields and capture groups are
+covered by finite cases. Regex splitting, standalone `capture`/`scan`, and
+replacement filters remain unsupported.
 Unicode case conversion, general string interpolation, and nested array/object
 values in `join` are also outside the current slice.
 
