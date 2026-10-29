@@ -29,3 +29,7 @@ semantics remain unverified.
 Selected recursive `contains`/`inside` behavior and array `reverse` are
 implemented and tracked separately in `STATUS.md`; this still covers only a
 small portion of jq's built-in filters.
+
+Selected `indices`, `index`, and `rindex` behavior is implemented for strings
+and arrays, including overlapping matches and Unicode codepoint offsets. The
+remaining receiver-type edge cases are only covered where `STATUS.md` says so.

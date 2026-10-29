@@ -480,6 +480,40 @@ def contains_value(container, needle, strict_types=False):
     return compare_values(container, needle) == 0
 
 
+def find_indices(value, needle):
+    if value is None:
+        if isinstance(needle, list):
+            raise RuntimeErrorJq('cannot search null with an array')
+        return None
+    if isinstance(value, dict):
+        if isinstance(needle, str):
+            return None
+        raise RuntimeErrorJq('cannot search an object with this pattern')
+    if isinstance(value, str):
+        if not isinstance(needle, str):
+            raise RuntimeErrorJq('string search requires a string pattern')
+        if not needle:
+            return []
+        result = []
+        offset = 0
+        while True:
+            index = value.find(needle, offset)
+            if index < 0:
+                return result
+            result.append(index)
+            offset = index + 1
+    if isinstance(value, list):
+        if isinstance(needle, list):
+            if not needle:
+                return []
+            return [start for start in range(len(value) - len(needle) + 1)
+                    if all(compare_values(value[start + offset], item) == 0
+                           for offset, item in enumerate(needle))]
+        return [index for index, item in enumerate(value)
+                if compare_values(item, needle) == 0]
+    raise RuntimeErrorJq('index filters require a string or array')
+
+
 def paths(node, root, variables):
     kind = node[0]
     if kind == 'identity':
@@ -594,7 +628,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('startswith', 1), ('endswith', 1), ('ltrimstr', 1), ('rtrimstr', 1),
                     ('trimstr', 1), ('split', 1), ('join', 1), ('type', 0),
                     ('tostring', 0), ('tojson', 0), ('fromjson', 0),
-                    ('reverse', 0), ('contains', 1), ('inside', 1)}
+                    ('reverse', 0), ('contains', 1), ('inside', 1),
+                    ('indices', 1), ('index', 1), ('rindex', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -898,6 +933,15 @@ def values(node, value, variables):
             for other in values(argument, value, variables):
                 yield (contains_value(value, other, strict_types=True) if name == 'contains'
                        else contains_value(other, value, strict_types=True))
+        elif name in ('indices', 'index', 'rindex') and argument is not None:
+            for needle in values(argument, value, variables):
+                matches = find_indices(value, needle)
+                if name == 'indices':
+                    yield matches
+                elif not matches:
+                    yield None
+                else:
+                    yield matches[0] if name == 'index' else matches[-1]
         elif name == 'have_decnum' and argument is None:
             yield True
         elif name == 'length' and argument is None:
