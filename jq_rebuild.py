@@ -899,7 +899,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('IN', 1), ('IN', 2),
                     ('add', 0), ('add', 1), ('ascii_downcase', 0), ('ascii_upcase', 0),
                     ('startswith', 1), ('endswith', 1), ('ltrimstr', 1), ('rtrimstr', 1),
-                    ('trimstr', 1), ('split', 1), ('join', 1), ('type', 0),
+                    ('trimstr', 1), ('split', 1), ('split', 2),
+                    ('splits', 1), ('splits', 2), ('join', 1), ('type', 0),
                     ('tostring', 0), ('tojson', 0), ('fromjson', 0),
                     ('reverse', 0), ('contains', 1), ('inside', 1),
                     ('indices', 1), ('index', 1), ('rindex', 1),
@@ -1314,6 +1315,24 @@ def oniguruma_scan(input_value, pattern, flags):
             yield match['string']
 
 
+def oniguruma_splits(input_value, pattern, flags):
+    if flags is None:
+        global_flags = 'g'
+    elif isinstance(flags, str):
+        global_flags = flags + 'g'
+    else:
+        flag_description = (
+            f'{jq_type_name(flags)} ({dump_json(flags, compact=True)})')
+        raise RuntimeErrorJq(
+            f'{flag_description} and string ("g") cannot be added')
+    start = 0
+    for match in oniguruma_match(input_value, pattern, global_flags):
+        end = match['offset']
+        yield input_value[start:end]
+        start = end + match['length']
+    yield input_value[start:]
+
+
 _BUILTIN_ARITIES.update((name, 0) for name in _MATH_FUNCTIONS)
 _BUILTIN_ARITIES.update((name, 0) for name in _MATH_ARRAY_FUNCTIONS)
 _BUILTIN_ARITIES.update((name, len(signature))
@@ -1699,8 +1718,8 @@ def values(node, value, variables):
                 yield from oniguruma_scan(value, pattern, None)
             return
         if name == 'scan' and len(arguments) == 2:
-            for flags in values(arguments[1], value, variables):
-                for pattern in values(arguments[0], value, variables):
+            for pattern in values(arguments[0], value, variables):
+                for flags in values(arguments[1], value, variables):
                     yield from oniguruma_scan(value, pattern, flags)
             return
         if name == 'empty' and argument is None:
@@ -2098,6 +2117,17 @@ def values(node, value, variables):
                     raise RuntimeErrorJq('split requires string inputs')
                 yield [] if not value else (
                     list(value) if separator == '' else value.split(separator))
+        elif name == 'split' and len(arguments) == 2:
+            for pattern in values(arguments[0], value, variables):
+                for flags in values(arguments[1], value, variables):
+                    yield list(oniguruma_splits(value, pattern, flags))
+        elif name == 'splits' and len(arguments) == 1:
+            for pattern in values(arguments[0], value, variables):
+                yield from oniguruma_splits(value, pattern, None)
+        elif name == 'splits' and len(arguments) == 2:
+            for pattern in values(arguments[0], value, variables):
+                for flags in values(arguments[1], value, variables):
+                    yield from oniguruma_splits(value, pattern, flags)
         elif name == 'join' and argument is not None:
             for separator in values(argument, value, variables):
                 if not isinstance(separator, str):
