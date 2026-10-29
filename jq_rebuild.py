@@ -936,6 +936,8 @@ _MATH_FUNCTIONS = {
     'fabs': math.fabs,
     'gamma': math.lgamma,
     'lgamma': math.lgamma,
+    'j0': lambda value: call_c_math('j0', [value]),
+    'j1': lambda value: call_c_math('j1', [value]),
     'log': math.log,
     'log10': math.log10,
     'log1p': math.log1p,
@@ -950,9 +952,17 @@ _MATH_FUNCTIONS = {
     'tan': math.tan,
     'tanh': math.tanh,
     'tgamma': math.gamma,
+    'y0': lambda value: call_c_math('y0', [value]),
+    'y1': lambda value: call_c_math('y1', [value]),
 }
 _MATH_ARRAY_FUNCTIONS = {'frexp': math.frexp, 'modf': math.modf}
 _C_DOUBLE = ctypes.c_double
+_C_MATH_UNARY_SIGNATURES = {
+    'j0': (_C_DOUBLE,),
+    'j1': (_C_DOUBLE,),
+    'y0': (_C_DOUBLE,),
+    'y1': (_C_DOUBLE,),
+}
 _C_MATH_SIGNATURES = {
     'atan2': (_C_DOUBLE, _C_DOUBLE),
     'copysign': (_C_DOUBLE, _C_DOUBLE),
@@ -985,7 +995,8 @@ def load_c_math_functions():
             continue
 
     functions = {}
-    for name, signature in _C_MATH_SIGNATURES.items():
+    signatures = {**_C_MATH_UNARY_SIGNATURES, **_C_MATH_SIGNATURES}
+    for name, signature in signatures.items():
         for library in libraries:
             try:
                 function = getattr(library, name)
@@ -1003,12 +1014,14 @@ _C_MATH_FUNCTIONS = load_c_math_functions()
 
 def call_c_math(name, arguments):
     function = _C_MATH_FUNCTIONS.get(name)
-    if function is None:
+    signature = (_C_MATH_UNARY_SIGNATURES.get(name)
+                 or _C_MATH_SIGNATURES.get(name))
+    if function is None or signature is None:
         raise RuntimeErrorJq(
             f'Error: {name}/{len(arguments)} not found at build time')
     numbers = [as_float(argument) for argument in arguments]
     converted = []
-    for c_type, number in zip(_C_MATH_SIGNATURES[name], numbers):
+    for c_type, number in zip(signature, numbers):
         if c_type in (ctypes.c_int, ctypes.c_long):
             try:
                 converted.append(c_type(int(number)))
