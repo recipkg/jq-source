@@ -553,7 +553,9 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('keys', 0), ('keys_unsorted', 0), ('has', 1), ('in', 1),
                     ('sort_by', 1), ('group_by', 1), ('unique', 0), ('unique_by', 1),
                     ('min', 0), ('max', 0), ('min_by', 1), ('max_by', 1),
-                    ('add', 0), ('add', 1)}
+                    ('add', 0), ('add', 1), ('ascii_downcase', 0), ('ascii_upcase', 0),
+                    ('startswith', 1), ('endswith', 1), ('ltrimstr', 1), ('rtrimstr', 1),
+                    ('trimstr', 1), ('split', 1), ('join', 1)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -634,6 +636,18 @@ def add_values(left, right):
     if type(left) is type(right) and isinstance(left, (str, list)):
         return left + right
     raise RuntimeErrorJq('incompatible operands for addition')
+
+
+def join_string(value):
+    if value is None:
+        return ''
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    if is_number(value):
+        return dump_json(value, compact=True)
+    raise RuntimeErrorJq('join does not support array or object elements')
 
 
 def has_key(container, key):
@@ -837,6 +851,47 @@ def values(node, value, variables):
                 yield abs(value)
             else:
                 raise RuntimeErrorJq('length not defined for this value')
+        elif name in ('ascii_downcase', 'ascii_upcase') and argument is None:
+            if not isinstance(value, str):
+                raise RuntimeErrorJq(name + ' requires a string')
+            if name == 'ascii_downcase':
+                yield value.translate(str.maketrans('ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+                                                    'abcdefghijklmnopqrstuvwxyz'))
+            else:
+                yield value.translate(str.maketrans('abcdefghijklmnopqrstuvwxyz',
+                                                    'ABCDEFGHIJKLMNOPQRSTUVWXYZ'))
+        elif name in ('startswith', 'endswith', 'ltrimstr', 'rtrimstr', 'trimstr') and argument is not None:
+            for text in values(argument, value, variables):
+                if not isinstance(value, str) or not isinstance(text, str):
+                    raise RuntimeErrorJq(name + ' requires string inputs')
+                if name == 'startswith':
+                    yield value.startswith(text)
+                elif name == 'endswith':
+                    yield value.endswith(text)
+                elif name == 'ltrimstr':
+                    yield value[len(text):] if text and value.startswith(text) else value
+                elif name == 'rtrimstr':
+                    yield value[:-len(text)] if text and value.endswith(text) else value
+                else:
+                    result = value[len(text):] if text and value.startswith(text) else value
+                    yield result[:-len(text)] if text and result.endswith(text) else result
+        elif name == 'split' and argument is not None:
+            for separator in values(argument, value, variables):
+                if not isinstance(value, str) or not isinstance(separator, str):
+                    raise RuntimeErrorJq('split requires string inputs')
+                yield [] if not value else (
+                    list(value) if separator == '' else value.split(separator))
+        elif name == 'join' and argument is not None:
+            for separator in values(argument, value, variables):
+                if not isinstance(separator, str):
+                    raise RuntimeErrorJq('join separator must be a string')
+                if isinstance(value, dict):
+                    items = list(value.values())
+                elif isinstance(value, list):
+                    items = value
+                else:
+                    raise RuntimeErrorJq('join requires an array or object')
+                yield separator.join(join_string(item) for item in items)
         elif name in ('keys', 'keys_unsorted') and argument is None:
             if isinstance(value, dict):
                 yield sorted(value) if name == 'keys' else list(value)

@@ -16,3 +16,8 @@ The current module slice supports explicit `-L` directories and recursive
 module metadata, JSON modules and jq's default module paths are explicitly
 unsupported; the finite acceptance results and remaining boundaries are in
 `STATUS.md`.
+
+The current string slice supports selected prefix/suffix tests and trimming,
+ASCII-only case conversion, literal splitting, and joining arrays or objects.
+It does not implement regex-based splitting, Unicode case conversion, general
+string interpolation, or nested array/object values in `join`.
