@@ -339,5 +339,5 @@ visible; passing a subset does not establish full reconstruction.
 ## Regex split iteration: 2026-10-30
 
 - Added selected `split(regex; flags)` array behavior and `splits(regex)`/`splits(regex; flags)` stream behavior while retaining literal `split(str)`. Regex matches delimit without emitting captures; flags force global matching, null flags are accepted, and argument generators preserve jq's observed pattern-outer ordering. Empty, adjacent, Unicode and zero-width separators have finite coverage.
-- Five focused black-box methods passed, including 100 fixed-seed differential cases. The full regression result is pending.
+- Five focused black-box methods passed, including 100 fixed-seed differential cases. The complete `test_jq_*.py` suite passed all 147 tests in 286.480 seconds at [jq-workspace 0be11ff](https://github.com/recipkg/jq-workspace/tree/0be11ff2b73dd4f429e8bb52d4371ab8a29d2ec8), pinned to this source and recipe `jq@0.1.54`; verification is [standard-library-verification 7155117](https://github.com/recipkg/standard-library-verification/tree/7155117cbb8874322bc048b95cf266fff88b5100). The reference reports 1.8.2; build provenance is unverified.
 - `/usr/bin/jq` reports 1.8.2; build provenance is unverified. The candidate requires host Oniguruma. Other platforms, regex replacements and full jq compatibility remain unverified.
