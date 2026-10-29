@@ -151,3 +151,10 @@ visible; passing a subset does not establish full reconstruction.
 - Implemented `first`, `last`, `nth`, and `isempty`. The no-generator forms use the observed array-index behavior; generator forms select from zero/many outputs, and `isempty` stops after the first generated value. Negative array indices follow array indexing, while negative generator indices fail.
 - All 4 generator test methods passed, including deterministic comparisons over 100 arrays and 11 selector expressions. After this update, the 19-method main jq contract suite and all 52 targeted `test_jq_*.py` methods passed; configured differential cases used local jq 1.8.2.
 - Exact diagnostics, complex multi-output index expressions, generator error timing beyond the observed early-stop case, resource limits, platforms and full jq compatibility remain incomplete or unverified.
+
+## Predicate iteration: 2026-10-30
+
+- Input: `recipkg/jq` v0.1.30 with its pinned recursive `software-quality` dependency. Black-box samples are in `recipkg/standard-library-verification` commit `6dba3922621bb75dd32f07423a8e0a9bd3c58f86`; the upstream comparison used local `/usr/bin/jq` reporting jq 1.8.2, whose exact build provenance is unverified.
+- Implemented `any` and `all` over iterable values, one condition applied to each value, and explicit generator/condition pairs. Empty inputs use the observed false/true identities, object inputs iterate their values, and decisive outputs stop further evaluation.
+- All 4 predicate test methods passed, including deterministic comparisons over 100 arrays and six filter forms. After this change, the 19-method main jq contract suite and all 56 targeted `test_jq_*.py` methods passed; configured differential cases used local jq 1.8.2.
+- Full condition-stream truthiness interactions, exact error and short-circuit diagnostics, resource limits, platform behavior and full jq compatibility remain incomplete or unverified.

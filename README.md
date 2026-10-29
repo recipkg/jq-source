@@ -45,3 +45,7 @@ the finite Unicode and numeric boundary samples are listed in `STATUS.md`.
 Selected `first`, `last`, `nth`, and `isempty` behavior covers array indexing and
 finite output generators. The tested negative-index rules differ between array
 indexing and generator selection; see `STATUS.md` for the exact sample boundary.
+
+Selected `any` and `all` behavior covers direct iterable inputs, per-item
+conditions, and explicit generator/condition pairs, with early termination on a
+decisive result.

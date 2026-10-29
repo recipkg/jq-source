@@ -682,7 +682,8 @@ _BUILTIN_ARITIES = {('empty', 0), ('length', 0), ('not', 0), ('select', 1),
                     ('flatten', 0), ('flatten', 1), ('utf8bytelength', 0),
                     ('explode', 0), ('implode', 0), ('first', 0), ('first', 1),
                     ('last', 0), ('last', 1), ('nth', 1), ('nth', 2),
-                    ('isempty', 1)}
+                    ('isempty', 1), ('any', 0), ('any', 1), ('any', 2),
+                    ('all', 0), ('all', 1), ('all', 2)}
 
 
 def validate_variables(node, names, functions=None, visiting=None):
@@ -1002,6 +1003,24 @@ def values(node, value, variables):
                 yield False
                 return
             yield True
+            return
+        if name in ('any', 'all'):
+            if len(arguments) == 0:
+                generator, condition = ('iterate', ('identity',)), ('identity',)
+            elif len(arguments) == 1:
+                generator, condition = ('iterate', ('identity',)), arguments[0]
+            else:
+                generator, condition = arguments
+            result = name == 'all'
+            for item in values(generator, value, variables):
+                for test in values(condition, item, variables):
+                    if name == 'any' and truth(test):
+                        yield True
+                        return
+                    if name == 'all' and not truth(test):
+                        yield False
+                        return
+            yield result
             return
         if name == 'modulemeta':
             raise RuntimeErrorJq('modulemeta is not supported yet')
